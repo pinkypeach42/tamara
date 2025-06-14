@@ -427,12 +427,12 @@ impl EEGProcessor {
                     if let Some(stream_info) = matching_stream {
                         match StreamInlet::new(stream_info, 360, 1, true) {
                             Ok(inlet) => {
-                                // Use the correct pull_sample signature for LSL 0.1.1
-                                match inlet.pull_sample(0.01) {
+                                // FIXED: Explicit type annotation for LSL 0.1.1 API
+                                match <StreamInlet as Pullable<f32>>::pull_sample(&inlet, 0.01) {
                                     Ok((sample, timestamp)) => {
                                         let mut channels = vec![0.0f32; channel_count];
                                         for (i, &value) in sample.iter().enumerate().take(channel_count) {
-                                            channels[i] = value as f32;
+                                            channels[i] = value;
                                         }
                                         
                                         Some(EEGSample {
