@@ -9,6 +9,8 @@ use tauri::{Manager, State};
 use serde::{Deserialize, Serialize};
 use rustfft::{FftPlanner, num_complex::Complex};
 use lsl::{StreamInlet, resolve_streams, StreamInfo, Pullable};
+use rand::{Rng, SeedableRng};
+use rand::seq::SliceRandom;
 
 #[derive(Debug, Serialize, Clone)]
 struct EEGSample {
@@ -425,6 +427,7 @@ impl EEGProcessor {
                     if let Some(stream_info) = matching_stream {
                         match StreamInlet::new(stream_info, 360, 1, true) {
                             Ok(inlet) => {
+                                // Use the correct pull_sample signature for LSL 0.1.1
                                 match inlet.pull_sample(0.01) {
                                     Ok((sample, timestamp)) => {
                                         let mut channels = vec![0.0f32; channel_count];
@@ -461,7 +464,6 @@ impl EEGProcessor {
         let mut channels = vec![0.0f32; channel_count];
         
         // Use a separate RNG instance to avoid Send issues
-        use rand::SeedableRng;
         let mut rng = rand::rngs::StdRng::from_entropy();
         
         for (i, channel) in channels.iter_mut().enumerate() {
@@ -720,7 +722,6 @@ fn get_meditation_quote() -> String {
         "Meditation is a way for nourishing and blossoming the divinity within you. - Amit Ray",
     ];
     
-    use rand::seq::SliceRandom;
     let mut rng = rand::rngs::StdRng::from_entropy();
     quotes.choose(&mut rng).unwrap_or(&quotes[0]).to_string()
 }
