@@ -1,20 +1,26 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap');
 
+/* Ensure all elements are visible */
+* {
+  box-sizing: border-box;
+}
+
 .app-container {
   min-height: 100vh;
   background: #F4EDEA;
   font-family: 'Inter', sans-serif;
+  width: 100%;
 }
 
+/* Simplified premium card styles */
 .premium-card {
-  background: rgba(244, 237, 234, 0.95);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(11, 49, 66, 0.08);
+  border: 1px solid rgba(11, 49, 66, 0.1);
   border-radius: 24px;
   box-shadow: 
     0 8px 32px rgba(11, 49, 66, 0.12),
-    0 2px 8px rgba(11, 49, 66, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    0 2px 8px rgba(11, 49, 66, 0.08);
 }
 
 .premium-card-dark {
@@ -24,8 +30,7 @@
   border-radius: 24px;
   box-shadow: 
     0 8px 32px rgba(11, 49, 66, 0.25),
-    0 2px 8px rgba(11, 49, 66, 0.15),
-    inset 0 1px 0 rgba(244, 209, 174, 0.1);
+    0 2px 8px rgba(11, 49, 66, 0.15);
 }
 
 .meditation-glow {
@@ -43,23 +48,6 @@
     #F4EDEA 100%);
 }
 
-.zen-gradient-animated {
-  background: linear-gradient(-45deg, 
-    #F4EDEA, 
-    rgba(244, 237, 234, 0.95),
-    rgba(244, 209, 174, 0.15),
-    rgba(11, 49, 66, 0.08),
-    #F4EDEA);
-  background-size: 400% 400%;
-  animation: gradientFlow 15s ease infinite;
-}
-
-@keyframes gradientFlow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
 .zen-text-gradient {
   background: linear-gradient(135deg, #0B3142 0%, #8B4513 100%);
   -webkit-background-clip: text;
@@ -69,82 +57,6 @@
 
 .zen-accent-gradient {
   background: linear-gradient(135deg, #F4D1AE 0%, #D4A574 100%);
-}
-
-.floating-orbs {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.orb {
-  position: absolute;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, 
-    rgba(244, 209, 174, 0.4) 0%, 
-    rgba(244, 209, 174, 0.2) 40%, 
-    rgba(11, 49, 66, 0.1) 100%);
-  backdrop-filter: blur(2px);
-  animation: floatOrb 20s ease-in-out infinite;
-}
-
-.orb:nth-child(1) {
-  width: 120px;
-  height: 120px;
-  top: 10%;
-  left: 15%;
-  animation-delay: 0s;
-  animation-duration: 25s;
-}
-
-.orb:nth-child(2) {
-  width: 80px;
-  height: 80px;
-  top: 20%;
-  right: 20%;
-  animation-delay: -8s;
-  animation-duration: 30s;
-}
-
-.orb:nth-child(3) {
-  width: 150px;
-  height: 150px;
-  bottom: 15%;
-  left: 25%;
-  animation-delay: -15s;
-  animation-duration: 35s;
-}
-
-.orb:nth-child(4) {
-  width: 100px;
-  height: 100px;
-  bottom: 25%;
-  right: 15%;
-  animation-delay: -22s;
-  animation-duration: 28s;
-}
-
-@keyframes floatOrb {
-  0%, 100% { 
-    transform: translate(0, 0) scale(1);
-    opacity: 0.6;
-  }
-  25% { 
-    transform: translate(30px, -20px) scale(1.1);
-    opacity: 0.8;
-  }
-  50% { 
-    transform: translate(-20px, -40px) scale(0.9);
-    opacity: 0.4;
-  }
-  75% { 
-    transform: translate(-30px, 20px) scale(1.05);
-    opacity: 0.7;
-  }
 }
 
 .floating-animation {
@@ -175,15 +87,6 @@
   50% { transform: scale(1.1); opacity: 1; }
 }
 
-.wave-flow {
-  animation: waveFlow 3s ease-in-out infinite;
-}
-
-@keyframes waveFlow {
-  0%, 100% { transform: translateX(0) scaleY(1); }
-  50% { transform: translateX(2px) scaleY(1.05); }
-}
-
 .zen-button {
   background: linear-gradient(135deg, #0B3142 0%, #1a5a73 100%);
   border: 2px solid rgba(244, 209, 174, 0.2);
@@ -196,31 +99,12 @@
   overflow: hidden;
 }
 
-.zen-button::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(244, 209, 174, 0.2), transparent);
-  transition: left 0.6s;
-}
-
-.zen-button:hover::before {
-  left: 100%;
-}
-
 .zen-button:hover {
   transform: translateY(-2px);
   box-shadow: 
     0 12px 40px rgba(11, 49, 66, 0.3),
     0 4px 16px rgba(11, 49, 66, 0.2);
   border-color: rgba(244, 209, 174, 0.4);
-}
-
-.zen-button:active {
-  transform: translateY(0);
 }
 
 .zen-button-accent {
@@ -241,33 +125,6 @@
   transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
-}
-
-.frequency-bar::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(45deg, 
-    transparent 30%, 
-    rgba(255, 255, 255, 0.3) 50%, 
-    transparent 70%);
-  transform: translateX(-100%);
-  animation: shimmer 3s infinite;
-}
-
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
-
-.eeg-canvas {
-  background: rgba(11, 49, 66, 0.03);
-  border: 1px solid rgba(11, 49, 66, 0.08);
-  border-radius: 16px;
-  backdrop-filter: blur(10px);
 }
 
 .status-indicator {
@@ -308,19 +165,8 @@
   border: 2px solid rgba(244, 237, 234, 0.3);
 }
 
-.zen-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(135deg, #D4A574 0%, #B8935F 100%);
-}
-
-.meditation-quote {
-  font-family: 'Playfair Display', serif;
-  font-style: italic;
-  color: #0B3142;
-  text-shadow: 0 2px 4px rgba(11, 49, 66, 0.1);
-}
-
 .zen-glass {
-  background: rgba(244, 237, 234, 0.7);
+  background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(11, 49, 66, 0.1);
 }
@@ -335,4 +181,28 @@
   box-shadow: 
     0 8px 40px rgba(11, 49, 66, 0.12),
     0 2px 8px rgba(11, 49, 66, 0.08);
+}
+
+/* Ensure text visibility */
+h1, h2, h3, h4, h5, h6 {
+  color: #0B3142;
+  font-weight: bold;
+}
+
+p, span, div {
+  color: #0B3142;
+}
+
+button {
+  cursor: pointer;
+}
+
+input {
+  color: #0B3142;
+}
+
+/* Debug helper */
+.debug-visible {
+  background: rgba(255, 0, 0, 0.1) !important;
+  border: 1px solid red !important;
 }

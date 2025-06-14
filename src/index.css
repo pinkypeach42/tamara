@@ -10,6 +10,12 @@
   box-sizing: border-box;
 }
 
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -18,8 +24,24 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: #F4EDEA;
   color: #0B3142;
+  line-height: 1.6;
 }
 
 #root {
   min-height: 100vh;
+  width: 100%;
+}
+
+/* Ensure all text is visible */
+h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
+  color: inherit;
+}
+
+/* Debug styles to ensure visibility */
+.debug-border {
+  border: 2px solid red !important;
+}
+
+.debug-bg {
+  background: yellow !important;
 }
