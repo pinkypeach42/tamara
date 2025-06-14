@@ -8,7 +8,6 @@ use tokio::time::interval;
 use tauri::{Manager, State};
 use serde::{Deserialize, Serialize};
 use rustfft::{FftPlanner, num_complex::Complex};
-use rand::Rng;
 use lsl::{StreamInlet, resolve_streams, StreamInfo, Pullable};
 
 #[derive(Debug, Serialize, Clone)]
@@ -227,7 +226,7 @@ impl EEGProcessor {
             match resolve_streams(5.0) {
                 Ok(streams) => {
                     let matching_stream = streams.iter()
-                        .find(|stream| stream.name() == stream_name);
+                        .find(|stream| stream.hostname() == stream_name);
                     
                     if let Some(stream_info) = matching_stream {
                         let channel_count = stream_info.channel_count() as usize;
@@ -254,7 +253,7 @@ impl EEGProcessor {
                         );
 
                         let info = LSLStreamInfo {
-                            name: stream_info.name().to_string(),
+                            name: stream_info.hostname().to_string(),
                             channel_count: stream_info.channel_count(),
                             sample_rate: stream_info.nominal_srate(),
                             is_connected: true,
@@ -311,7 +310,7 @@ impl EEGProcessor {
         
         // Try to detect device type and use known layouts
         let source_id = stream_info.source_id().to_lowercase();
-        let stream_name = stream_info.name().to_lowercase();
+        let stream_name = stream_info.hostname().to_lowercase();
         
         println!("🔍 Detecting device type...");
         println!("📱 Source ID: {}", source_id);
@@ -381,7 +380,7 @@ impl EEGProcessor {
 
     fn extract_device_info_sync(stream_info: &StreamInfo) -> (String, String) {
         let source_id = stream_info.source_id().to_lowercase();
-        let stream_name = stream_info.name().to_lowercase();
+        let stream_name = stream_info.hostname().to_lowercase();
         
         // Detect device type from source ID or stream name
         if source_id.contains("unicorn") || stream_name.contains("unicorn") || stream_name == "123" {
@@ -421,17 +420,21 @@ impl EEGProcessor {
             match resolve_streams(0.01) {
                 Ok(streams) => {
                     let matching_stream = streams.iter()
-                        .find(|stream| stream.name() == stream_name);
+                        .find(|stream| stream.hostname() == stream_name);
                     
                     if let Some(stream_info) = matching_stream {
                         match StreamInlet::new(stream_info, 360, 1, true) {
                             Ok(inlet) => {
-                                let mut sample = vec![0.0f32; channel_count];
-                                match inlet.pull_sample(&mut sample, 0.01) {
-                                    Ok(timestamp) => {
+                                match inlet.pull_sample(0.01) {
+                                    Ok((sample, timestamp)) => {
+                                        let mut channels = vec![0.0f32; channel_count];
+                                        for (i, &value) in sample.iter().enumerate().take(channel_count) {
+                                            channels[i] = value as f32;
+                                        }
+                                        
                                         Some(EEGSample {
                                             timestamp,
-                                            channels: sample,
+                                            channels,
                                         })
                                     }
                                     Err(_) => None,
@@ -451,12 +454,15 @@ impl EEGProcessor {
     }
 
     async fn generate_simulated_sample(&self, timestamp: f64) -> EEGSample {
-        let mut rng = rand::thread_rng();
         let connection = self.lsl_connection.lock().await;
         let channel_count = connection.channel_count;
         drop(connection);
         
         let mut channels = vec![0.0f32; channel_count];
+        
+        // Use a separate RNG instance to avoid Send issues
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::from_entropy();
         
         for (i, channel) in channels.iter_mut().enumerate() {
             // Create unique patterns for each channel (simulating different brain regions)
@@ -714,8 +720,9 @@ fn get_meditation_quote() -> String {
         "Meditation is a way for nourishing and blossoming the divinity within you. - Amit Ray",
     ];
     
-    let mut rng = rand::thread_rng();
-    quotes[rng.gen_range(0..quotes.len())].to_string()
+    use rand::seq::SliceRandom;
+    let mut rng = rand::rngs::StdRng::from_entropy();
+    quotes.choose(&mut rng).unwrap_or(&quotes[0]).to_string()
 }
 
 fn main() {
