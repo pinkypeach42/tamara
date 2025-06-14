@@ -22,8 +22,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #F4EDEA;
-  color: #0B3142;
+  background: #f8fafc;
+  color: #1e293b;
   line-height: 1.6;
 }
 
@@ -32,16 +32,54 @@ body {
   width: 100%;
 }
 
-/* Ensure all text is visible */
+/* Ensure all text is visible with proper contrast */
 h1, h2, h3, h4, h5, h6, p, span, div, button, input, label {
   color: inherit;
 }
 
-/* Debug styles to ensure visibility */
+/* Simple animations that work in Tauri */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Debug styles */
 .debug-border {
   border: 2px solid red !important;
 }
 
 .debug-bg {
   background: yellow !important;
+}
+
+/* Ensure proper text rendering in Tauri */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fix any potential rendering issues */
+.container {
+  max-width: 100%;
+}
+
+/* Ensure buttons are clickable */
+button {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Ensure inputs work properly */
+input {
+  background: white;
+  border: 1px solid #d1d5db;
+}
+
+input:focus {
+  outline: none;
+  border-color: #3b82f6;
 }
