@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Brain, Activity, Database, CheckCircle, Filter, Zap, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Brain, Activity, Database, CheckCircle, Filter, Zap, AlertTriangle, Heart, Waves } from 'lucide-react';
 import EEGWaveform from './EEGWaveform';
 import FrequencyBands from './FrequencyBands';
 
@@ -51,102 +51,14 @@ const isTauri = (() => {
   }
 })();
 
-// Enhanced mock functions that clearly indicate simulated data
+// Mock functions should NEVER be used when real data is expected
 const mockListen = async (event: string, handler: (event: any) => void) => {
-  console.log(`🎭 Mock Tauri listen (SIMULATED DATA): ${event}`);
+  console.log(`❌ Mock Tauri listen - NO REAL EEG DATA AVAILABLE: ${event}`);
   
-  if (event === 'eeg_sample') {
-    const interval = setInterval(() => {
-      try {
-        handler({
-          payload: {
-            timestamp: Date.now(),
-            channels: Array.from({ length: 8 }, (_, i) => {
-              const time = Date.now() / 1000;
-              const channelOffset = i * 0.5;
-              // Enhanced realistic EEG simulation
-              return (
-                25 * Math.sin(2 * Math.PI * 10 * (time + channelOffset)) + // Alpha
-                18 * Math.sin(2 * Math.PI * 6 * (time + channelOffset)) +  // Theta
-                12 * Math.sin(2 * Math.PI * 20 * (time + channelOffset)) + // Beta
-                8 * Math.sin(2 * Math.PI * 2 * (time + channelOffset)) +   // Delta
-                (Math.random() - 0.5) * 15 // Realistic noise
-              );
-            })
-          }
-        });
-      } catch (error) {
-        console.error('❌ Mock EEG sample error:', error);
-      }
-    }, 16);
-    
-    return () => {
-      console.log('🛑 Cleaning up mock EEG sample listener');
-      clearInterval(interval);
-    };
-  }
-  
-  if (event === 'filtered_eeg_sample') {
-    const interval = setInterval(() => {
-      try {
-        handler({
-          payload: {
-            timestamp: Date.now(),
-            channels: Array.from({ length: 8 }, (_, i) => {
-              const time = Date.now() / 1000;
-              const channelOffset = i * 0.5;
-              // Filtered data - cleaner, less noise, better signal quality
-              return (
-                22 * Math.sin(2 * Math.PI * 10 * (time + channelOffset)) + // Alpha (preserved)
-                15 * Math.sin(2 * Math.PI * 6 * (time + channelOffset)) +  // Theta (preserved)
-                8 * Math.sin(2 * Math.PI * 20 * (time + channelOffset)) +  // Beta (reduced)
-                6 * Math.sin(2 * Math.PI * 2 * (time + channelOffset)) +   // Delta (preserved)
-                (Math.random() - 0.5) * 3 // Much less noise after filtering
-              );
-            })
-          }
-        });
-      } catch (error) {
-        console.error('❌ Mock filtered EEG sample error:', error);
-      }
-    }, 16);
-    
-    return () => {
-      console.log('🛑 Cleaning up mock filtered EEG sample listener');
-      clearInterval(interval);
-    };
-  }
-  
-  if (event === 'frequency_bands') {
-    const interval = setInterval(() => {
-      try {
-        const bands = [];
-        for (let channel = 0; channel < 8; channel++) {
-          // Simulate realistic meditation-state frequency bands
-          const meditationFactor = 0.7 + 0.3 * Math.sin(Date.now() * 0.001);
-          bands.push({
-            timestamp: Date.now(),
-            channel,
-            alpha: (25 + Math.random() * 15) * meditationFactor, // Higher alpha in meditation
-            beta: (8 + Math.random() * 12) * (1 - meditationFactor * 0.5), // Lower beta in meditation
-            theta: (15 + Math.random() * 10) * meditationFactor, // Higher theta in deep meditation
-            delta: (5 + Math.random() * 8) * meditationFactor, // Moderate delta
-            gamma: (2 + Math.random() * 6) // Low gamma
-          });
-        }
-        handler({ payload: bands });
-      } catch (error) {
-        console.error('❌ Mock frequency bands error:', error);
-      }
-    }, 200);
-    
-    return () => {
-      console.log('🛑 Cleaning up mock frequency bands listener');
-      clearInterval(interval);
-    };
-  }
-  
-  return () => {};
+  // Return empty cleanup function - no mock data for meditation app
+  return () => {
+    console.log('🛑 No mock data cleanup needed');
+  };
 };
 
 // Enhanced listen function that prioritizes REAL Tauri events
@@ -156,7 +68,7 @@ const listen = async (event: string, handler: (event: any) => void) => {
       console.log('🦀 Using REAL Tauri listen for REAL LSL data:', event);
       return await window.__TAURI__.event.listen(event, handler);
     } else {
-      console.log('🎭 Using mock listen (SIMULATED DATA ONLY):', event);
+      console.log('❌ No Tauri environment - cannot listen to real EEG events:', event);
       return await mockListen(event, handler);
     }
   } catch (error) {
@@ -171,18 +83,40 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
   const [latestFrequencyBands, setLatestFrequencyBands] = useState<FrequencyBand[]>([]);
   const [selectedChannel, setSelectedChannel] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
+  const [connectionLost, setConnectionLost] = useState(false);
+  const [lastDataTime, setLastDataTime] = useState<number>(Date.now());
 
   // Debug logging
   useEffect(() => {
     console.log('🎯 StreamVisualization mounted');
     console.log('📊 Stream info:', streamInfo);
-    console.log('🔧 Environment:', isTauri ? 'Tauri Desktop (REAL LSL CAPABLE)' : 'Web Browser (SIMULATED DATA ONLY)');
-    console.log('🔗 Data source:', streamInfo.is_connected ? 'REAL LSL STREAM' : 'SIMULATED DATA');
+    console.log('🔧 Environment:', isTauri ? 'Tauri Desktop (REAL LSL CAPABLE)' : 'Web Browser (NO REAL LSL ACCESS)');
+    console.log('🔗 Data source:', streamInfo.is_connected ? 'REAL LSL STREAM' : 'NO REAL DATA');
   }, []);
 
+  // Monitor data flow and detect connection loss
   useEffect(() => {
-    console.log('🎧 Setting up EEG data listeners...');
-    console.log(`📡 Data type: ${streamInfo.is_connected ? 'REAL LSL DATA' : 'SIMULATED DATA'}`);
+    const checkDataFlow = setInterval(() => {
+      const timeSinceLastData = Date.now() - lastDataTime;
+      if (timeSinceLastData > 5000 && isRecording) { // 5 seconds without data
+        console.log('⚠️ No EEG data received for 5 seconds - connection may be lost');
+        setConnectionLost(true);
+      } else if (timeSinceLastData < 1000) {
+        setConnectionLost(false);
+      }
+    }, 1000);
+
+    return () => clearInterval(checkDataFlow);
+  }, [lastDataTime, isRecording]);
+
+  useEffect(() => {
+    if (!streamInfo.is_connected) {
+      console.log('❌ No real LSL connection - cannot setup data listeners');
+      return;
+    }
+
+    console.log('🎧 Setting up REAL EEG data listeners...');
+    console.log('📡 Data type: REAL LSL DATA');
     
     let unlistenRaw: (() => void) | undefined;
     let unlistenFiltered: (() => void) | undefined;
@@ -190,10 +124,11 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
 
     const setupListeners = async () => {
       try {
-        console.log('🔗 Connecting to raw EEG samples...');
+        console.log('🔗 Connecting to REAL raw EEG samples...');
         unlistenRaw = await listen('eeg_sample', (event: any) => {
           try {
             const sample: EEGSample = event.payload;
+            setLastDataTime(Date.now());
             setRawEegHistory(prev => {
               const newHistory = [...prev, sample];
               return newHistory.slice(-1000); // Keep 4 seconds at 250Hz
@@ -203,10 +138,11 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
           }
         });
 
-        console.log('🔗 Connecting to filtered EEG samples...');
+        console.log('🔗 Connecting to REAL filtered EEG samples...');
         unlistenFiltered = await listen('filtered_eeg_sample', (event: any) => {
           try {
             const sample: FilteredEEGSample = event.payload;
+            setLastDataTime(Date.now());
             setFilteredEegHistory(prev => {
               const newHistory = [...prev, sample];
               return newHistory.slice(-1000); // Keep 4 seconds at 250Hz
@@ -216,10 +152,11 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
           }
         });
 
-        console.log('🔗 Connecting to frequency band data...');
+        console.log('🔗 Connecting to REAL frequency band data...');
         unlistenBands = await listen('frequency_bands', (event: any) => {
           try {
             const bands: FrequencyBand[] = event.payload;
+            setLastDataTime(Date.now());
             setLatestFrequencyBands(bands);
           } catch (error) {
             console.error('❌ Frequency bands processing error:', error);
@@ -227,16 +164,17 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
         });
 
         setIsRecording(true);
-        console.log(`✅ All EEG data listeners setup successfully - ${streamInfo.is_connected ? 'REAL DATA' : 'SIMULATED DATA'}`);
+        console.log('✅ All REAL EEG data listeners setup successfully');
       } catch (error) {
-        console.error('❌ Failed to setup EEG data listeners:', error);
+        console.error('❌ Failed to setup REAL EEG data listeners:', error);
+        setConnectionLost(true);
       }
     };
 
     setupListeners();
 
     return () => {
-      console.log('🧹 Cleaning up EEG data listeners...');
+      console.log('🧹 Cleaning up REAL EEG data listeners...');
       if (unlistenRaw) {
         try {
           unlistenRaw();
@@ -262,7 +200,7 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
         }
       }
     };
-  }, []);
+  }, [streamInfo.is_connected]);
 
   // Debug render
   console.log('🎨 StreamVisualization render:', {
@@ -271,7 +209,8 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
     rawSamples: rawEegHistory.length,
     filteredSamples: filteredEegHistory.length,
     frequencyBands: latestFrequencyBands.length,
-    dataType: streamInfo.is_connected ? 'REAL' : 'SIMULATED'
+    dataType: streamInfo.is_connected ? 'REAL' : 'NO REAL DATA',
+    connectionLost
   });
 
   return (
@@ -292,33 +231,59 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
               className="zen-button px-6 py-3 flex items-center text-sm font-semibold"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Configuration
+              Device Setup
             </button>
             
             <div className="flex items-center gap-4">
               <div className="premium-card px-4 py-2 flex items-center">
                 <div className={`w-3 h-3 rounded-full mr-3 status-indicator ${
-                  streamInfo.is_connected ? 'bg-emerald-500' : 'bg-amber-500'
+                  streamInfo.is_connected && !connectionLost ? 'bg-emerald-500' : 
+                  connectionLost ? 'bg-rose-500' : 'bg-amber-500'
                 }`}></div>
                 <span className="text-[#0B3142] font-bold text-sm tracking-wide">
-                  {streamInfo.is_connected ? 'REAL LSL DATA ACTIVE' : 'SIMULATED DATA ACTIVE'}
+                  {streamInfo.is_connected && !connectionLost ? 'REAL EEG DATA FLOWING' : 
+                   connectionLost ? 'CONNECTION LOST' : 'NO REAL DATA'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Data Source Warning */}
+          {/* Connection Status Warnings */}
           {!streamInfo.is_connected && (
+            <div className="mb-6">
+              <div className="premium-card p-6 border-l-4 border-rose-400">
+                <div className="flex items-center gap-4">
+                  <div className="bg-rose-100 p-3 rounded-full">
+                    <Heart className="w-6 h-6 text-rose-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-[#0B3142] text-lg mb-2">
+                      🧘‍♀️ EEG Device Required for Meditation
+                    </h3>
+                    <p className="text-[#0B3142]/70 text-sm leading-relaxed">
+                      This meditation app needs a real EEG device to provide personalized neural feedback. 
+                      Please connect your EEG device and ensure LSL streaming is active for the complete mindfulness experience.
+                    </p>
+                    <div className="mt-3 text-xs text-[#0B3142]/60 italic">
+                      "The mind is like water. When agitated, it becomes difficult to see. When calm, everything becomes clear."
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {connectionLost && streamInfo.is_connected && (
             <div className="mb-6">
               <div className="premium-card p-4 border-l-4 border-amber-400">
                 <div className="flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                  <Waves className="w-5 h-5 text-amber-600 flex-shrink-0" />
                   <div>
                     <p className="font-bold text-[#0B3142] text-sm">
-                      ⚠️ Displaying Simulated Neural Data
+                      ⚠️ Neural Connection Interrupted
                     </p>
                     <p className="text-[#0B3142]/70 text-xs mt-1">
-                      This is realistic simulation. For real EEG data, connect your device via LSL in Tauri desktop mode.
+                      No EEG data received recently. Please check your device connection and LSL streaming.
                     </p>
                   </div>
                 </div>
@@ -341,7 +306,7 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
                   {streamInfo.name}
                 </h1>
                 <p className="text-[#0B3142]/70 text-xl font-medium">
-                  {streamInfo.is_connected ? 'Live Neural Data Stream' : 'Simulated Neural Data Stream'}
+                  {streamInfo.is_connected ? 'Live Neural Meditation Stream' : 'EEG Device Connection Required'}
                 </p>
                 {streamInfo.device_model && (
                   <p className="text-[#0B3142]/50 text-sm mt-1">
@@ -355,7 +320,7 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <div className="zen-glass rounded-xl p-4 text-center">
                 <div className="text-2xl font-bold text-[#0B3142] mb-1">{streamInfo.channel_count}</div>
-                <div className="text-xs text-[#0B3142]/60 font-semibold">Channels</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Neural Channels</div>
               </div>
               <div className="zen-glass rounded-xl p-4 text-center">
                 <div className="text-2xl font-bold text-[#0B3142] mb-1">{streamInfo.sample_rate}</div>
@@ -363,18 +328,20 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
               </div>
               <div className="zen-glass rounded-xl p-4 text-center">
                 <div className="flex items-center justify-center gap-2 mb-1">
-                  <CheckCircle className={`w-5 h-5 ${streamInfo.is_connected ? 'text-emerald-500' : 'text-amber-500'}`} />
+                  <CheckCircle className={`w-5 h-5 ${
+                    streamInfo.is_connected && !connectionLost ? 'text-emerald-500' : 'text-rose-500'
+                  }`} />
                   <span className="text-lg font-bold text-[#0B3142]">
-                    {streamInfo.is_connected ? 'Real Data' : 'Simulated'}
+                    {streamInfo.is_connected && !connectionLost ? 'Live Data' : 'No Data'}
                   </span>
                 </div>
-                <div className="text-xs text-[#0B3142]/60 font-semibold">Data Source</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Connection Status</div>
               </div>
               <div className="zen-glass rounded-xl p-4 text-center">
                 <div className="text-2xl font-bold text-[#0B3142] mb-1">
-                  {streamInfo.stream_type || 'EEG'}
+                  {rawEegHistory.length}
                 </div>
-                <div className="text-xs text-[#0B3142]/60 font-semibold">Signal Type</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Samples Received</div>
               </div>
             </div>
 
@@ -383,7 +350,7 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
               <div className="zen-glass rounded-xl p-4">
                 <h3 className="text-sm font-bold text-[#0B3142] mb-2 flex items-center gap-2">
                   <Zap className="w-4 h-4" />
-                  Stream Metadata
+                  Device Information
                 </h3>
                 <p className="text-sm text-[#0B3142]/70 font-mono leading-relaxed">{streamInfo.metadata}</p>
               </div>
@@ -391,108 +358,140 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
           </div>
         </header>
 
-        {/* Premium Channel Selector */}
-        <div className="flex justify-center mb-8">
-          <div className="premium-card p-4 flex items-center gap-3">
-            <span className="text-[#0B3142] font-bold mr-3 text-sm">Neural Focus Channel:</span>
-            <div className="flex gap-2">
-              {Array.from({ length: streamInfo.channel_count }, (_, i) => {
-                const channelName = streamInfo.channel_names?.[i] || `${i + 1}`;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setSelectedChannel(i)}
-                    className={`px-3 py-2 rounded-xl font-bold text-xs transition-all duration-300 ${
-                      selectedChannel === i
-                        ? 'zen-button-accent meditation-glow shadow-lg'
-                        : 'bg-[#0B3142]/10 text-[#0B3142] hover:bg-[#0B3142]/20 hover:shadow-md'
-                    }`}
-                    title={`Channel ${i + 1}: ${channelName}`}
-                  >
-                    {channelName}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Premium Visualization Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-          {/* Neural Waveform Visualizations */}
-          <div className="xl:col-span-2 space-y-8">
-            {/* Raw Neural Data */}
-            <div className="premium-card p-6">
-              <div className="flex items-center mb-6">
-                <div className="zen-accent-gradient p-3 rounded-full mr-4">
-                  <Activity className="w-6 h-6 text-[#0B3142]" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
-                    {streamInfo.is_connected ? 'Raw Neural Signals' : 'Simulated Raw Signals'}
-                  </h2>
-                  <p className="text-[#0B3142]/60 text-sm">
-                    {streamInfo.channel_count} channels • {streamInfo.is_connected ? 'Live EEG data' : 'Realistic simulation'} • Real-time visualization
-                  </p>
+        {/* Only show visualizations if we have real data */}
+        {streamInfo.is_connected ? (
+          <>
+            {/* Premium Channel Selector */}
+            <div className="flex justify-center mb-8">
+              <div className="premium-card p-4 flex items-center gap-3">
+                <span className="text-[#0B3142] font-bold mr-3 text-sm">Neural Focus Channel:</span>
+                <div className="flex gap-2">
+                  {Array.from({ length: streamInfo.channel_count }, (_, i) => {
+                    const channelName = streamInfo.channel_names?.[i] || `${i + 1}`;
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => setSelectedChannel(i)}
+                        className={`px-3 py-2 rounded-xl font-bold text-xs transition-all duration-300 ${
+                          selectedChannel === i
+                            ? 'zen-button-accent meditation-glow shadow-lg'
+                            : 'bg-[#0B3142]/10 text-[#0B3142] hover:bg-[#0B3142]/20 hover:shadow-md'
+                        }`}
+                        title={`Channel ${i + 1}: ${channelName}`}
+                      >
+                        {channelName}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              <EEGWaveform 
-                data={rawEegHistory} 
-                isActive={isRecording}
-                channelCount={streamInfo.channel_count}
-                channelNames={streamInfo.channel_names}
-                title={streamInfo.is_connected ? "Raw Neural Data" : "Simulated Raw Data"}
-                isFiltered={false}
-              />
             </div>
 
-            {/* Filtered Neural Data */}
-            <div className="premium-card p-6">
-              <div className="flex items-center mb-6">
-                <div className="zen-accent-gradient p-3 rounded-full mr-4">
-                  <Filter className="w-6 h-6 text-[#0B3142]" />
+            {/* Premium Visualization Grid */}
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+              {/* Neural Waveform Visualizations */}
+              <div className="xl:col-span-2 space-y-8">
+                {/* Raw Neural Data */}
+                <div className="premium-card p-6">
+                  <div className="flex items-center mb-6">
+                    <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                      <Activity className="w-6 h-6 text-[#0B3142]" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
+                        Raw Neural Signals
+                      </h2>
+                      <p className="text-[#0B3142]/60 text-sm">
+                        {streamInfo.channel_count} channels • Live EEG data • Real-time visualization
+                      </p>
+                    </div>
+                  </div>
+                  <EEGWaveform 
+                    data={rawEegHistory} 
+                    isActive={isRecording && !connectionLost}
+                    channelCount={streamInfo.channel_count}
+                    channelNames={streamInfo.channel_names}
+                    title="Raw Neural Data"
+                    isFiltered={false}
+                  />
                 </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
-                    {streamInfo.is_connected ? 'Processed Neural Signals' : 'Simulated Filtered Signals'}
-                  </h2>
-                  <p className="text-[#0B3142]/60 text-sm">
-                    1-40 Hz bandpass • 50 Hz notch filter • Artifact removal • Real-time processing
-                  </p>
-                </div>
-              </div>
-              <EEGWaveform 
-                data={filteredEegHistory} 
-                isActive={isRecording}
-                channelCount={streamInfo.channel_count}
-                channelNames={streamInfo.channel_names}
-                title={streamInfo.is_connected ? "Filtered Neural Data" : "Simulated Filtered Data"}
-                isFiltered={true}
-              />
-            </div>
-          </div>
 
-          {/* Neural State Analysis */}
-          <div className="premium-card p-6">
-            <div className="flex items-center mb-6">
-              <div className="zen-accent-gradient p-3 rounded-full mr-4">
-                <Brain className="w-6 h-6 text-[#0B3142]" />
+                {/* Filtered Neural Data */}
+                <div className="premium-card p-6">
+                  <div className="flex items-center mb-6">
+                    <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                      <Filter className="w-6 h-6 text-[#0B3142]" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
+                        Processed Neural Signals
+                      </h2>
+                      <p className="text-[#0B3142]/60 text-sm">
+                        1-40 Hz bandpass • 50 Hz notch filter • Artifact removal • Real-time processing
+                      </p>
+                    </div>
+                  </div>
+                  <EEGWaveform 
+                    data={filteredEegHistory} 
+                    isActive={isRecording && !connectionLost}
+                    channelCount={streamInfo.channel_count}
+                    channelNames={streamInfo.channel_names}
+                    title="Filtered Neural Data"
+                    isFiltered={true}
+                  />
+                </div>
               </div>
-              <div>
-                <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
-                  {streamInfo.is_connected ? 'Neural States' : 'Simulated Neural States'}
-                </h2>
-                <p className="text-[#0B3142]/60 text-sm">
-                  {streamInfo.channel_names?.[selectedChannel] || `Channel ${selectedChannel + 1}`} • Frequency Analysis
+
+              {/* Neural State Analysis */}
+              <div className="premium-card p-6">
+                <div className="flex items-center mb-6">
+                  <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                    <Brain className="w-6 h-6 text-[#0B3142]" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
+                      Meditation States
+                    </h2>
+                    <p className="text-[#0B3142]/60 text-sm">
+                      {streamInfo.channel_names?.[selectedChannel] || `Channel ${selectedChannel + 1}`} • Frequency Analysis
+                    </p>
+                  </div>
+                </div>
+                <FrequencyBands 
+                  data={latestFrequencyBands} 
+                  selectedChannel={selectedChannel} 
+                />
+              </div>
+            </div>
+          </>
+        ) : (
+          /* Gentle guidance when no real data */
+          <div className="flex items-center justify-center min-h-96">
+            <div className="premium-card p-12 text-center max-w-2xl">
+              <div className="zen-accent-gradient p-6 rounded-full w-fit mx-auto mb-6">
+                <Heart className="w-12 h-12 text-[#0B3142]" />
+              </div>
+              <h2 className="text-3xl font-bold text-[#0B3142] mb-4" style={{ fontFamily: 'Playfair Display, serif' }}>
+                Ready for Your Meditation Journey
+              </h2>
+              <p className="text-[#0B3142]/70 text-lg leading-relaxed mb-6">
+                Connect your EEG device to begin receiving personalized neural feedback 
+                that will guide you into deeper states of mindfulness and inner peace.
+              </p>
+              <div className="zen-glass rounded-xl p-6">
+                <div className="flex items-center justify-center gap-3 mb-4">
+                  <Waves className="w-6 h-6 text-[#0B3142]/50" />
+                  <span className="text-[#0B3142]/70 italic">
+                    "Meditation is not evasion; it is a serene encounter with reality."
+                  </span>
+                </div>
+                <p className="text-[#0B3142]/50 text-sm">
+                  - Thich Nhat Hanh
                 </p>
               </div>
             </div>
-            <FrequencyBands 
-              data={latestFrequencyBands} 
-              selectedChannel={selectedChannel} 
-            />
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
