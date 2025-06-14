@@ -221,8 +221,8 @@ impl EEGProcessor {
                             let stream_type = stream_info.stream_type().to_string();
                             let source_id = stream_info.source_id().to_string();
                             
-                            // Extract channel names from XML description
-                            let channel_names = self.extract_channel_names(stream_info, channel_count).await;
+                            // Extract REAL channel names from XML description
+                            let channel_names = self.extract_real_channel_names(stream_info, channel_count).await;
                             
                             // Extract manufacturer and device info
                             let (manufacturer, device_model) = self.extract_device_info(stream_info).await;
@@ -283,48 +283,135 @@ impl EEGProcessor {
         }
     }
 
-    async fn extract_channel_names(&self, stream_info: &lsl::StreamInfo, channel_count: usize) -> Vec<String> {
-        // Try to extract channel names from LSL stream description XML
+    async fn extract_real_channel_names(&self, stream_info: &lsl::StreamInfo, channel_count: usize) -> Vec<String> {
+        println!("🔍 Extracting REAL channel names from LSL stream...");
+        
+        // Get the XML description from the LSL stream
         let desc = stream_info.desc();
         let mut channel_names = Vec::new();
         
-        // Default EEG channel names for common configurations
-        let default_8ch = vec!["Fp1", "Fp2", "C3", "C4", "P3", "P4", "O1", "O2"];
-        let default_16ch = vec![
-            "Fp1", "Fp2", "F3", "F4", "C3", "C4", "P3", "P4", 
-            "O1", "O2", "F7", "F8", "T7", "T8", "P7", "P8"
-        ];
+        // Try to parse XML description for channel names
+        // LSL streams often have channel info in XML format like:
+        // <channels>
+        //   <channel><label>Fz</label><unit>microvolts</unit><type>EEG</type></channel>
+        //   <channel><label>C3</label><unit>microvolts</unit><type>EEG</type></channel>
+        //   ...
+        // </channels>
         
-        // For Unicorn devices, use standard 10-20 system names
-        if channel_count == 8 {
-            channel_names = default_8ch.iter().map(|s| s.to_string()).collect();
-        } else if channel_count == 16 {
-            channel_names = default_16ch.iter().map(|s| s.to_string()).collect();
-        } else {
-            // Generic channel names for other configurations
-            for i in 0..channel_count {
-                channel_names.push(format!("Ch{}", i + 1));
+        // For now, we'll extract from the description string
+        // In a full implementation, you'd use an XML parser
+        let desc_str = format!("{:?}", desc); // Convert to string for parsing
+        println!("📋 LSL Stream Description: {}", desc_str);
+        
+        // Try to extract channel labels from common LSL XML patterns
+        if desc_str.contains("label") {
+            // Parse XML-like structure for channel labels
+            // This is a simplified parser - in production use proper XML parsing
+            let lines: Vec<&str> = desc_str.split('\n').collect();
+            for line in lines {
+                if line.contains("<label>") && line.contains("</label>") {
+                    if let Some(start) = line.find("<label>") {
+                        if let Some(end) = line.find("</label>") {
+                            let label = &line[start + 7..end];
+                            if !label.is_empty() && channel_names.len() < channel_count {
+                                channel_names.push(label.to_string());
+                                println!("📍 Found channel: {}", label);
+                            }
+                        }
+                    }
+                }
             }
         }
         
-        // TODO: Parse XML description to get actual channel names if available
-        // This would require XML parsing which we can implement later
+        // If we couldn't extract from XML, try to detect device type and use known layouts
+        if channel_names.is_empty() {
+            let source_id = stream_info.source_id().to_lowercase();
+            let stream_name = stream_info.name().to_lowercase();
+            
+            println!("🔍 No XML channel names found, detecting device type...");
+            println!("📱 Source ID: {}", source_id);
+            println!("📱 Stream Name: {}", stream_name);
+            
+            // Unicorn Hybrid Black specific channel layout
+            if source_id.contains("unicorn") || stream_name.contains("unicorn") || stream_name == "123" {
+                println!("🦄 Detected Unicorn Hybrid Black device");
+                // Unicorn Hybrid Black has these channels in this order:
+                // EEG: Fz, C3, Cz, C4, Pz, PO7, Oz, PO8
+                // Plus: ACC X, ACC Y, ACC Z, GYR X, GYR Y, GYR Z, Battery, Counter, Validation
+                let unicorn_channels = vec![
+                    "Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8",
+                    "ACC_X", "ACC_Y", "ACC_Z", "GYR_X", "GYR_Y", "GYR_Z", 
+                    "Battery", "Counter", "Validation"
+                ];
+                
+                for i in 0..channel_count.min(unicorn_channels.len()) {
+                    channel_names.push(unicorn_channels[i].to_string());
+                }
+            }
+            // OpenBCI detection
+            else if source_id.contains("openbci") || stream_name.contains("openbci") {
+                println!("🧠 Detected OpenBCI device");
+                let openbci_8ch = vec!["Fp1", "Fp2", "C3", "C4", "P7", "P8", "O1", "O2"];
+                let openbci_16ch = vec![
+                    "Fp1", "Fp2", "F7", "F3", "F4", "F8", "C3", "Cz", 
+                    "C4", "T7", "T8", "P7", "P3", "Pz", "P4", "P8"
+                ];
+                
+                let channels = if channel_count <= 8 { &openbci_8ch } else { &openbci_16ch };
+                for i in 0..channel_count.min(channels.len()) {
+                    channel_names.push(channels[i].to_string());
+                }
+            }
+            // Emotiv detection
+            else if source_id.contains("emotiv") || stream_name.contains("emotiv") {
+                println!("🎭 Detected Emotiv device");
+                let emotiv_channels = vec![
+                    "AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", 
+                    "P8", "T8", "FC6", "F4", "F8", "AF4"
+                ];
+                
+                for i in 0..channel_count.min(emotiv_channels.len()) {
+                    channel_names.push(emotiv_channels[i].to_string());
+                }
+            }
+            // Generic fallback
+            else {
+                println!("❓ Unknown device, using generic channel names");
+                for i in 0..channel_count {
+                    channel_names.push(format!("Ch{}", i + 1));
+                }
+            }
+        }
         
+        // Ensure we have the right number of channels
+        while channel_names.len() < channel_count {
+            channel_names.push(format!("Ch{}", channel_names.len() + 1));
+        }
+        
+        // Truncate if we have too many
+        channel_names.truncate(channel_count);
+        
+        println!("✅ Final channel names: {:?}", channel_names);
         channel_names
     }
 
     async fn extract_device_info(&self, stream_info: &lsl::StreamInfo) -> (String, String) {
-        let source_id = stream_info.source_id();
+        let source_id = stream_info.source_id().to_lowercase();
+        let stream_name = stream_info.name().to_lowercase();
         
         // Detect device type from source ID or stream name
-        if source_id.contains("Unicorn") || source_id.contains("unicorn") {
+        if source_id.contains("unicorn") || stream_name.contains("unicorn") || stream_name == "123" {
             ("g.tec medical engineering GmbH".to_string(), "Unicorn Hybrid Black".to_string())
-        } else if source_id.contains("OpenBCI") {
+        } else if source_id.contains("openbci") || stream_name.contains("openbci") {
             ("OpenBCI".to_string(), "Cyton Board".to_string())
-        } else if source_id.contains("Emotiv") {
+        } else if source_id.contains("emotiv") || stream_name.contains("emotiv") {
             ("Emotiv Inc.".to_string(), "EPOC+".to_string())
+        } else if source_id.contains("neurosky") || stream_name.contains("neurosky") {
+            ("NeuroSky".to_string(), "MindWave".to_string())
+        } else if source_id.contains("muse") || stream_name.contains("muse") {
+            ("InteraXon".to_string(), "Muse Headband".to_string())
         } else {
-            ("Unknown".to_string(), "EEG Device".to_string())
+            ("Unknown Manufacturer".to_string(), "EEG Device".to_string())
         }
     }
 
