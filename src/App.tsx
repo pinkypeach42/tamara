@@ -259,7 +259,7 @@ function App() {
 
         {/* Footer */}
         <div className="flex-shrink-0 text-center pb-4">
-          <p className="text-[#0B3142]/40 text-xs">ZenFlow Pro • Professional Neurofeedback Technology</p>
+          <p className="text-[#0B3142]/40 text-xs">Tamara • Professional Neurofeedback Technology</p>
         </div>
       </div>
     </div>
