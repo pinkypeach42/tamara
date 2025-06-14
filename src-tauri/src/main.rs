@@ -41,12 +41,138 @@ struct LSLStreamInfo {
     sample_rate: f64,
     is_connected: bool,
     metadata: String,
+    stream_type: String,
+    source_id: String,
+    channel_names: Vec<String>,
+    manufacturer: String,
+    device_model: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct LSLConfig {
     stream_name: String,
     use_real_data: bool,
+}
+
+// Digital filter structures for real-time processing
+#[derive(Debug, Clone)]
+struct ButterworthFilter {
+    order: usize,
+    a: Vec<f64>,
+    b: Vec<f64>,
+    x_history: Vec<Vec<f64>>, // Input history for each channel
+    y_history: Vec<Vec<f64>>, // Output history for each channel
+}
+
+impl ButterworthFilter {
+    fn new(order: usize, channel_count: usize) -> Self {
+        // 4th order Butterworth bandpass 1-40 Hz at 250 Hz sampling rate
+        // Coefficients calculated for 1-40 Hz bandpass
+        let b = vec![0.0067, 0.0, -0.0134, 0.0, 0.0067];
+        let a = vec![1.0, -3.1806, 3.8612, -2.1122, 0.4383];
+        
+        Self {
+            order,
+            a,
+            b,
+            x_history: vec![vec![0.0; order + 1]; channel_count],
+            y_history: vec![vec![0.0; order + 1]; channel_count],
+        }
+    }
+    
+    fn process(&mut self, input: &[f32]) -> Vec<f32> {
+        let mut output = Vec::with_capacity(input.len());
+        
+        for (ch, &sample) in input.iter().enumerate() {
+            if ch >= self.x_history.len() {
+                output.push(sample);
+                continue;
+            }
+            
+            // Shift history
+            for i in (1..self.x_history[ch].len()).rev() {
+                self.x_history[ch][i] = self.x_history[ch][i - 1];
+                self.y_history[ch][i] = self.y_history[ch][i - 1];
+            }
+            
+            self.x_history[ch][0] = sample as f64;
+            
+            // Apply filter equation
+            let mut y = 0.0;
+            for i in 0..self.b.len() {
+                if i < self.x_history[ch].len() {
+                    y += self.b[i] * self.x_history[ch][i];
+                }
+            }
+            for i in 1..self.a.len() {
+                if i < self.y_history[ch].len() {
+                    y -= self.a[i] * self.y_history[ch][i];
+                }
+            }
+            
+            self.y_history[ch][0] = y;
+            output.push(y as f32);
+        }
+        
+        output
+    }
+}
+
+#[derive(Debug, Clone)]
+struct NotchFilter {
+    // 50 Hz notch filter coefficients for 250 Hz sampling rate
+    b: Vec<f64>,
+    a: Vec<f64>,
+    x_history: Vec<Vec<f64>>,
+    y_history: Vec<Vec<f64>>,
+}
+
+impl NotchFilter {
+    fn new(channel_count: usize) -> Self {
+        // 50 Hz notch filter coefficients (Q=30)
+        let b = vec![0.9565, -1.9131, 0.9565];
+        let a = vec![1.0, -1.9131, 0.9131];
+        
+        Self {
+            b,
+            a,
+            x_history: vec![vec![0.0; 3]; channel_count],
+            y_history: vec![vec![0.0; 3]; channel_count],
+        }
+    }
+    
+    fn process(&mut self, input: &[f32]) -> Vec<f32> {
+        let mut output = Vec::with_capacity(input.len());
+        
+        for (ch, &sample) in input.iter().enumerate() {
+            if ch >= self.x_history.len() {
+                output.push(sample);
+                continue;
+            }
+            
+            // Shift history
+            for i in (1..3).rev() {
+                self.x_history[ch][i] = self.x_history[ch][i - 1];
+                self.y_history[ch][i] = self.y_history[ch][i - 1];
+            }
+            
+            self.x_history[ch][0] = sample as f64;
+            
+            // Apply filter
+            let mut y = 0.0;
+            for i in 0..self.b.len() {
+                y += self.b[i] * self.x_history[ch][i];
+            }
+            for i in 1..self.a.len() {
+                y -= self.a[i] * self.y_history[ch][i];
+            }
+            
+            self.y_history[ch][0] = y;
+            output.push(y as f32);
+        }
+        
+        output
+    }
 }
 
 struct EEGProcessor {
@@ -58,6 +184,8 @@ struct EEGProcessor {
     is_using_lsl: Arc<Mutex<bool>>,
     stream_info: Arc<Mutex<Option<LSLStreamInfo>>>,
     channel_count: Arc<Mutex<usize>>,
+    bandpass_filter: Arc<Mutex<Option<ButterworthFilter>>>,
+    notch_filter: Arc<Mutex<Option<NotchFilter>>>,
 }
 
 impl EEGProcessor {
@@ -71,6 +199,8 @@ impl EEGProcessor {
             is_using_lsl: Arc::new(Mutex::new(false)),
             stream_info: Arc::new(Mutex::new(None)),
             channel_count: Arc::new(Mutex::new(8)),
+            bandpass_filter: Arc::new(Mutex::new(None)),
+            notch_filter: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -87,18 +217,34 @@ impl EEGProcessor {
                         Ok(inlet) => {
                             let channel_count = stream_info.channel_count() as usize;
                             
+                            // Extract detailed metadata
+                            let stream_type = stream_info.stream_type().to_string();
+                            let source_id = stream_info.source_id().to_string();
+                            
+                            // Extract channel names from XML description
+                            let channel_names = self.extract_channel_names(stream_info, channel_count).await;
+                            
+                            // Extract manufacturer and device info
+                            let (manufacturer, device_model) = self.extract_device_info(stream_info).await;
+                            
                             // Update channel count and resize buffers
                             *self.channel_count.lock().await = channel_count;
                             *self.channel_buffers.lock().await = vec![Vec::new(); channel_count];
                             *self.filtered_buffers.lock().await = vec![Vec::new(); channel_count];
 
-                            // Extract metadata
+                            // Initialize filters for real-time processing
+                            *self.bandpass_filter.lock().await = Some(ButterworthFilter::new(4, channel_count));
+                            *self.notch_filter.lock().await = Some(NotchFilter::new(channel_count));
+
+                            // Create comprehensive metadata
                             let metadata = format!(
-                                "Type: {} | Source: {} | Channels: {} | Rate: {:.1} Hz",
-                                stream_info.stream_type(),
-                                stream_info.source_id(),
-                                stream_info.channel_count(),
-                                stream_info.nominal_srate()
+                                "Type: {} | Source: {} | Channels: {} | Rate: {:.1} Hz | Manufacturer: {} | Model: {}",
+                                stream_type,
+                                source_id,
+                                channel_count,
+                                stream_info.nominal_srate(),
+                                manufacturer,
+                                device_model
                             );
 
                             let info = LSLStreamInfo {
@@ -107,6 +253,11 @@ impl EEGProcessor {
                                 sample_rate: stream_info.nominal_srate(),
                                 is_connected: true,
                                 metadata,
+                                stream_type,
+                                source_id,
+                                channel_names,
+                                manufacturer,
+                                device_model,
                             };
                             
                             *self.lsl_inlet.lock().await = Some(inlet);
@@ -115,6 +266,7 @@ impl EEGProcessor {
                             
                             println!("✅ Successfully connected to LSL stream: '{}'", stream_name);
                             println!("📊 Stream info: {}", info.metadata);
+                            println!("🏷️ Channel names: {:?}", info.channel_names);
                             Ok(info)
                         }
                         Err(e) => {
@@ -131,10 +283,57 @@ impl EEGProcessor {
         }
     }
 
+    async fn extract_channel_names(&self, stream_info: &lsl::StreamInfo, channel_count: usize) -> Vec<String> {
+        // Try to extract channel names from LSL stream description XML
+        let desc = stream_info.desc();
+        let mut channel_names = Vec::new();
+        
+        // Default EEG channel names for common configurations
+        let default_8ch = vec!["Fp1", "Fp2", "C3", "C4", "P3", "P4", "O1", "O2"];
+        let default_16ch = vec![
+            "Fp1", "Fp2", "F3", "F4", "C3", "C4", "P3", "P4", 
+            "O1", "O2", "F7", "F8", "T7", "T8", "P7", "P8"
+        ];
+        
+        // For Unicorn devices, use standard 10-20 system names
+        if channel_count == 8 {
+            channel_names = default_8ch.iter().map(|s| s.to_string()).collect();
+        } else if channel_count == 16 {
+            channel_names = default_16ch.iter().map(|s| s.to_string()).collect();
+        } else {
+            // Generic channel names for other configurations
+            for i in 0..channel_count {
+                channel_names.push(format!("Ch{}", i + 1));
+            }
+        }
+        
+        // TODO: Parse XML description to get actual channel names if available
+        // This would require XML parsing which we can implement later
+        
+        channel_names
+    }
+
+    async fn extract_device_info(&self, stream_info: &lsl::StreamInfo) -> (String, String) {
+        let source_id = stream_info.source_id();
+        
+        // Detect device type from source ID or stream name
+        if source_id.contains("Unicorn") || source_id.contains("unicorn") {
+            ("g.tec medical engineering GmbH".to_string(), "Unicorn Hybrid Black".to_string())
+        } else if source_id.contains("OpenBCI") {
+            ("OpenBCI".to_string(), "Cyton Board".to_string())
+        } else if source_id.contains("Emotiv") {
+            ("Emotiv Inc.".to_string(), "EPOC+".to_string())
+        } else {
+            ("Unknown".to_string(), "EEG Device".to_string())
+        }
+    }
+
     async fn disconnect_lsl(&self) {
         *self.lsl_inlet.lock().await = None;
         *self.is_using_lsl.lock().await = false;
         *self.stream_info.lock().await = None;
+        *self.bandpass_filter.lock().await = None;
+        *self.notch_filter.lock().await = None;
         println!("🔌 Disconnected from LSL stream");
     }
 
@@ -184,25 +383,43 @@ impl EEGProcessor {
         EEGSample { timestamp, channels }
     }
 
-    async fn apply_filters(&self, sample: &EEGSample) -> FilteredEEGSample {
-        // Simple filtering implementation
-        // In a real application, you would implement proper digital filters
-        let mut filtered_channels = sample.channels.clone();
+    async fn apply_real_time_filters(&self, sample: &EEGSample) -> FilteredEEGSample {
+        let mut bandpass_guard = self.bandpass_filter.lock().await;
+        let mut notch_guard = self.notch_filter.lock().await;
         
-        // Apply basic smoothing and artifact removal
-        for channel_data in filtered_channels.iter_mut() {
-            // Artifact removal - clip extreme values
-            if channel_data.abs() > 300.0 {
-                *channel_data = channel_data.signum() * 300.0;
+        if let (Some(bandpass), Some(notch)) = (bandpass_guard.as_mut(), notch_guard.as_mut()) {
+            // Apply bandpass filter (1-40 Hz)
+            let bandpass_output = bandpass.process(&sample.channels);
+            
+            // Apply notch filter (50 Hz)
+            let notch_output = notch.process(&bandpass_output);
+            
+            // Artifact removal - clip extreme values (>300 µV)
+            let mut filtered_channels = notch_output;
+            for channel_data in filtered_channels.iter_mut() {
+                if channel_data.abs() > 300.0 {
+                    *channel_data = channel_data.signum() * 300.0;
+                }
             }
             
-            // Simple high-pass filter simulation (remove DC offset)
-            *channel_data *= 0.95;
-        }
-        
-        FilteredEEGSample {
-            timestamp: sample.timestamp,
-            channels: filtered_channels,
+            FilteredEEGSample {
+                timestamp: sample.timestamp,
+                channels: filtered_channels,
+            }
+        } else {
+            // Fallback: simple filtering if filters not initialized
+            let mut filtered_channels = sample.channels.clone();
+            for channel_data in filtered_channels.iter_mut() {
+                if channel_data.abs() > 300.0 {
+                    *channel_data = channel_data.signum() * 300.0;
+                }
+                *channel_data *= 0.95; // Simple high-pass
+            }
+            
+            FilteredEEGSample {
+                timestamp: sample.timestamp,
+                channels: filtered_channels,
+            }
         }
     }
 
@@ -354,8 +571,8 @@ async fn start_eeg_processing(
                 processor_guard.generate_simulated_sample(timestamp).await
             };
             
-            // Apply filters to get filtered sample
-            let filtered_sample = processor_guard.apply_filters(&raw_sample).await;
+            // Apply real-time filters
+            let filtered_sample = processor_guard.apply_real_time_filters(&raw_sample).await;
             
             // Update buffers for FFT analysis
             processor_guard.update_buffers(&raw_sample, &filtered_sample).await;

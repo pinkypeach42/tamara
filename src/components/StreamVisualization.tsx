@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Brain, Activity, Database, CheckCircle, Filter } from 'lucide-react';
+import { ArrowLeft, Brain, Activity, Database, CheckCircle, Filter, Zap } from 'lucide-react';
 import EEGWaveform from './EEGWaveform';
 import FrequencyBands from './FrequencyBands';
 
@@ -9,6 +9,11 @@ interface LSLStreamInfo {
   sample_rate: number;
   is_connected: boolean;
   metadata: string;
+  stream_type?: string;
+  source_id?: string;
+  channel_names?: string[];
+  manufacturer?: string;
+  device_model?: string;
 }
 
 interface EEGSample {
@@ -39,7 +44,7 @@ interface StreamVisualizationProps {
 // Check if we're running in Tauri environment
 const isTauri = typeof window !== 'undefined' && window.__TAURI_IPC__;
 
-// Mock functions for web environment
+// Enhanced mock functions for web environment with real metadata simulation
 const mockListen = async (event: string, handler: (event: any) => void) => {
   console.log(`Mock Tauri listen: ${event}`);
   
@@ -52,10 +57,11 @@ const mockListen = async (event: string, handler: (event: any) => void) => {
             const time = Date.now() / 1000;
             const channelOffset = i * 0.5;
             return (
-              20 * Math.sin(2 * Math.PI * 10 * (time + channelOffset)) + // Alpha
-              15 * Math.sin(2 * Math.PI * 6 * (time + channelOffset)) +  // Theta
-              8 * Math.sin(2 * Math.PI * 20 * (time + channelOffset)) +  // Beta
-              (Math.random() - 0.5) * 10 // Noise
+              25 * Math.sin(2 * Math.PI * 10 * (time + channelOffset)) + // Alpha
+              18 * Math.sin(2 * Math.PI * 6 * (time + channelOffset)) +  // Theta
+              12 * Math.sin(2 * Math.PI * 20 * (time + channelOffset)) + // Beta
+              8 * Math.sin(2 * Math.PI * 2 * (time + channelOffset)) +   // Delta
+              (Math.random() - 0.5) * 15 // Realistic noise
             );
           })
         }
@@ -73,11 +79,13 @@ const mockListen = async (event: string, handler: (event: any) => void) => {
           channels: Array.from({ length: 8 }, (_, i) => {
             const time = Date.now() / 1000;
             const channelOffset = i * 0.5;
-            // Filtered data - smoother, less noise
+            // Filtered data - cleaner, less noise, better signal quality
             return (
-              18 * Math.sin(2 * Math.PI * 10 * (time + channelOffset)) + // Alpha
-              12 * Math.sin(2 * Math.PI * 6 * (time + channelOffset)) +  // Theta
-              6 * Math.sin(2 * Math.PI * 20 * (time + channelOffset))    // Beta (reduced)
+              22 * Math.sin(2 * Math.PI * 10 * (time + channelOffset)) + // Alpha (preserved)
+              15 * Math.sin(2 * Math.PI * 6 * (time + channelOffset)) +  // Theta (preserved)
+              8 * Math.sin(2 * Math.PI * 20 * (time + channelOffset)) +  // Beta (reduced)
+              6 * Math.sin(2 * Math.PI * 2 * (time + channelOffset)) +   // Delta (preserved)
+              (Math.random() - 0.5) * 3 // Much less noise after filtering
             );
           })
         }
@@ -91,14 +99,16 @@ const mockListen = async (event: string, handler: (event: any) => void) => {
     const interval = setInterval(() => {
       const bands = [];
       for (let channel = 0; channel < 8; channel++) {
+        // Simulate realistic meditation-state frequency bands
+        const meditationFactor = 0.7 + 0.3 * Math.sin(Date.now() * 0.001);
         bands.push({
           timestamp: Date.now(),
           channel,
-          alpha: Math.random() * 30 + 10,
-          beta: Math.random() * 25 + 5,
-          theta: Math.random() * 20 + 5,
-          delta: Math.random() * 15 + 2,
-          gamma: Math.random() * 10 + 1
+          alpha: (25 + Math.random() * 15) * meditationFactor, // Higher alpha in meditation
+          beta: (8 + Math.random() * 12) * (1 - meditationFactor * 0.5), // Lower beta in meditation
+          theta: (15 + Math.random() * 10) * meditationFactor, // Higher theta in deep meditation
+          delta: (5 + Math.random() * 8) * meditationFactor, // Moderate delta
+          gamma: (2 + Math.random() * 6) // Low gamma
         });
       }
       handler({ payload: bands });
@@ -167,151 +177,184 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
 
   return (
     <div className="app-container zen-gradient min-h-screen">
-      {/* Floating Background Elements */}
+      {/* Premium floating background elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-20 w-32 h-32 rounded-full bg-gradient-to-r from-[#F4D1AE]/20 to-[#0B3142]/10 floating-animation" style={{ animationDelay: '0s' }}></div>
-        <div className="absolute top-40 right-32 w-24 h-24 rounded-full bg-gradient-to-r from-[#0B3142]/10 to-[#F4D1AE]/20 floating-animation" style={{ animationDelay: '2s' }}></div>
-        <div className="absolute bottom-32 left-1/3 w-40 h-40 rounded-full bg-gradient-to-r from-[#F4D1AE]/15 to-[#0B3142]/5 floating-animation" style={{ animationDelay: '4s' }}></div>
+        <div className="absolute top-20 left-20 w-40 h-40 rounded-full bg-gradient-to-r from-[#F4D1AE]/15 to-[#0B3142]/8 floating-animation" style={{ animationDelay: '0s' }}></div>
+        <div className="absolute top-60 right-32 w-32 h-32 rounded-full bg-gradient-to-r from-[#0B3142]/8 to-[#F4D1AE]/15 floating-animation" style={{ animationDelay: '3s' }}></div>
+        <div className="absolute bottom-40 left-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-[#F4D1AE]/12 to-[#0B3142]/6 floating-animation" style={{ animationDelay: '6s' }}></div>
       </div>
 
       <div className="relative z-10 container mx-auto px-6 py-6">
-        {/* Header */}
-        <header className="mb-6">
-          <div className="flex items-center justify-between mb-4">
+        {/* Premium Header */}
+        <header className="mb-8">
+          <div className="flex items-center justify-between mb-6">
             <button
               onClick={onBack}
-              className="zen-button px-4 py-2 flex items-center text-sm"
+              className="zen-button px-6 py-3 flex items-center text-sm font-semibold"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Configuration
+              Configuration
             </button>
             
-            <div className="flex items-center gap-3">
-              <div className="premium-card px-3 py-1.5 flex items-center">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-2 status-indicator"></div>
-                <span className="text-[#0B3142] font-medium text-xs">Live Stream Active</span>
+            <div className="flex items-center gap-4">
+              <div className="premium-card px-4 py-2 flex items-center">
+                <div className="w-3 h-3 rounded-full bg-emerald-500 mr-3 status-indicator"></div>
+                <span className="text-[#0B3142] font-bold text-sm tracking-wide">NEURAL INTERFACE ACTIVE</span>
               </div>
             </div>
           </div>
 
-          {/* Stream Information */}
-          <div className="premium-card p-6">
-            <div className="flex items-center mb-4">
-              <div className="zen-accent-gradient p-3 rounded-full mr-4">
+          {/* Enhanced Stream Information Card */}
+          <div className="premium-card p-8">
+            <div className="flex items-center mb-6">
+              <div className="zen-accent-gradient p-4 rounded-full mr-6 meditation-glow">
                 {streamInfo.is_connected ? (
-                  <Database className="w-6 h-6 text-[#0B3142]" />
+                  <Database className="w-8 h-8 text-[#0B3142]" />
                 ) : (
-                  <Brain className="w-6 h-6 text-[#0B3142]" />
+                  <Brain className="w-8 h-8 text-[#0B3142]" />
                 )}
               </div>
               <div>
-                <h1 className="text-3xl font-bold zen-text-gradient mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
+                <h1 className="text-4xl font-bold zen-text-gradient mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
                   {streamInfo.name}
                 </h1>
-                <p className="text-[#0B3142]/70 text-lg">
-                  {streamInfo.is_connected ? 'Real-time EEG Data Stream' : 'Simulated EEG Data'}
+                <p className="text-[#0B3142]/70 text-xl font-medium">
+                  {streamInfo.is_connected ? 'Live Neural Data Stream' : 'Simulated Neural Data'}
                 </p>
+                {streamInfo.device_model && (
+                  <p className="text-[#0B3142]/50 text-sm mt-1">
+                    {streamInfo.manufacturer} • {streamInfo.device_model}
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Stream Metadata */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="zen-glass rounded-xl p-3 text-center">
-                <div className="text-xl font-bold text-[#0B3142] mb-1">{streamInfo.channel_count}</div>
-                <div className="text-xs text-[#0B3142]/60">Channels</div>
+            {/* Premium Stream Metadata Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="zen-glass rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-[#0B3142] mb-1">{streamInfo.channel_count}</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Channels</div>
               </div>
-              <div className="zen-glass rounded-xl p-3 text-center">
-                <div className="text-xl font-bold text-[#0B3142] mb-1">{streamInfo.sample_rate}</div>
-                <div className="text-xs text-[#0B3142]/60">Hz Sampling Rate</div>
+              <div className="zen-glass rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-[#0B3142] mb-1">{streamInfo.sample_rate}</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Hz Sampling</div>
               </div>
-              <div className="zen-glass rounded-xl p-3 text-center">
+              <div className="zen-glass rounded-xl p-4 text-center">
                 <div className="flex items-center justify-center gap-2 mb-1">
-                  <CheckCircle className="w-4 h-4 text-emerald-500" />
-                  <span className="text-base font-bold text-[#0B3142]">Connected</span>
+                  <CheckCircle className="w-5 h-5 text-emerald-500" />
+                  <span className="text-lg font-bold text-[#0B3142]">Connected</span>
                 </div>
-                <div className="text-xs text-[#0B3142]/60">Status</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Status</div>
+              </div>
+              <div className="zen-glass rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-[#0B3142] mb-1">
+                  {streamInfo.stream_type || 'EEG'}
+                </div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Data Type</div>
               </div>
             </div>
 
+            {/* Enhanced Metadata Display */}
             {streamInfo.metadata && (
-              <div className="mt-4 zen-glass rounded-xl p-3">
-                <h3 className="text-xs font-semibold text-[#0B3142] mb-1">Stream Metadata</h3>
-                <p className="text-xs text-[#0B3142]/70 font-mono">{streamInfo.metadata}</p>
+              <div className="zen-glass rounded-xl p-4">
+                <h3 className="text-sm font-bold text-[#0B3142] mb-2 flex items-center gap-2">
+                  <Zap className="w-4 h-4" />
+                  Stream Metadata
+                </h3>
+                <p className="text-sm text-[#0B3142]/70 font-mono leading-relaxed">{streamInfo.metadata}</p>
               </div>
             )}
           </div>
         </header>
 
-        {/* Channel Selector */}
-        <div className="flex justify-center mb-6">
-          <div className="premium-card p-2 flex items-center gap-2">
-            <span className="text-[#0B3142] font-medium mr-2 text-sm">Focus Channel:</span>
-            {Array.from({ length: streamInfo.channel_count }, (_, i) => (
-              <button
-                key={i}
-                onClick={() => setSelectedChannel(i)}
-                className={`w-8 h-8 rounded-full font-semibold text-xs transition-all duration-300 ${
-                  selectedChannel === i
-                    ? 'zen-button-accent meditation-glow'
-                    : 'bg-[#0B3142]/10 text-[#0B3142] hover:bg-[#0B3142]/20'
-                }`}
-              >
-                {i + 1}
-              </button>
-            ))}
+        {/* Premium Channel Selector */}
+        <div className="flex justify-center mb-8">
+          <div className="premium-card p-4 flex items-center gap-3">
+            <span className="text-[#0B3142] font-bold mr-3 text-sm">Neural Focus Channel:</span>
+            <div className="flex gap-2">
+              {Array.from({ length: streamInfo.channel_count }, (_, i) => {
+                const channelName = streamInfo.channel_names?.[i] || `${i + 1}`;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedChannel(i)}
+                    className={`px-3 py-2 rounded-xl font-bold text-xs transition-all duration-300 ${
+                      selectedChannel === i
+                        ? 'zen-button-accent meditation-glow shadow-lg'
+                        : 'bg-[#0B3142]/10 text-[#0B3142] hover:bg-[#0B3142]/20 hover:shadow-md'
+                    }`}
+                    title={`Channel ${i + 1}: ${channelName}`}
+                  >
+                    {channelName}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        {/* Visualization Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Raw EEG Waveform */}
-          <div className="xl:col-span-2 space-y-6">
-            {/* Raw Data */}
+        {/* Premium Visualization Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          {/* Neural Waveform Visualizations */}
+          <div className="xl:col-span-2 space-y-8">
+            {/* Raw Neural Data */}
             <div className="premium-card p-6">
-              <div className="flex items-center mb-4">
-                <div className="zen-accent-gradient p-2 rounded-full mr-3">
-                  <Activity className="w-5 h-5 text-[#0B3142]" />
+              <div className="flex items-center mb-6">
+                <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                  <Activity className="w-6 h-6 text-[#0B3142]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold text-[#0B3142] mb-1">Raw Brainwaves</h2>
-                  <p className="text-[#0B3142]/60 text-sm">{streamInfo.channel_count} channels • Unfiltered data</p>
+                  <h2 className="text-2xl font-bold text-[#0B3142] mb-1">Raw Neural Signals</h2>
+                  <p className="text-[#0B3142]/60 text-sm">
+                    {streamInfo.channel_count} channels • Unprocessed brainwave data • Real-time acquisition
+                  </p>
                 </div>
               </div>
               <EEGWaveform 
                 data={rawEegHistory} 
                 isActive={isRecording}
                 channelCount={streamInfo.channel_count}
+                channelNames={streamInfo.channel_names}
+                title="Raw Neural Data"
+                isFiltered={false}
               />
             </div>
 
-            {/* Filtered Data */}
+            {/* Filtered Neural Data */}
             <div className="premium-card p-6">
-              <div className="flex items-center mb-4">
-                <div className="zen-accent-gradient p-2 rounded-full mr-3">
-                  <Filter className="w-5 h-5 text-[#0B3142]" />
+              <div className="flex items-center mb-6">
+                <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                  <Filter className="w-6 h-6 text-[#0B3142]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-semibold text-[#0B3142] mb-1">Filtered Brainwaves</h2>
-                  <p className="text-[#0B3142]/60 text-sm">1-40 Hz bandpass • 50 Hz notch • Artifact removal</p>
+                  <h2 className="text-2xl font-bold text-[#0B3142] mb-1">Processed Neural Signals</h2>
+                  <p className="text-[#0B3142]/60 text-sm">
+                    1-40 Hz bandpass • 50 Hz notch filter • Artifact removal • Real-time processing
+                  </p>
                 </div>
               </div>
               <EEGWaveform 
                 data={filteredEegHistory} 
                 isActive={isRecording}
                 channelCount={streamInfo.channel_count}
+                channelNames={streamInfo.channel_names}
+                title="Filtered Neural Data"
+                isFiltered={true}
               />
             </div>
           </div>
 
-          {/* Frequency Analysis */}
+          {/* Neural State Analysis */}
           <div className="premium-card p-6">
-            <div className="flex items-center mb-4">
-              <div className="zen-accent-gradient p-2 rounded-full mr-3">
-                <Brain className="w-5 h-5 text-[#0B3142]" />
+            <div className="flex items-center mb-6">
+              <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                <Brain className="w-6 h-6 text-[#0B3142]" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-[#0B3142] mb-1">Mind States</h2>
-                <p className="text-[#0B3142]/60 text-sm">Channel {selectedChannel + 1} Analysis</p>
+                <h2 className="text-2xl font-bold text-[#0B3142] mb-1">Neural States</h2>
+                <p className="text-[#0B3142]/60 text-sm">
+                  {streamInfo.channel_names?.[selectedChannel] || `Channel ${selectedChannel + 1}`} • Frequency Analysis
+                </p>
               </div>
             </div>
             <FrequencyBands 
