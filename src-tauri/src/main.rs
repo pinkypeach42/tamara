@@ -176,13 +176,12 @@ impl NotchFilter {
     }
 }
 
-// FIXED: Thread-safe LSL connection without storing StreamInlet
+// Thread-safe LSL connection
 #[derive(Debug, Clone)]
 struct LSLConnection {
     stream_info: Option<LSLStreamInfo>,
     channel_count: usize,
     is_real_connection: bool,
-    // Store stream details for reconnection instead of the inlet itself
     stream_name: Option<String>,
 }
 
@@ -221,31 +220,49 @@ impl EEGProcessor {
     }
 
     async fn connect_to_lsl(&self, stream_name: &str) -> Result<LSLStreamInfo, String> {
-        println!("🔍 Searching for REAL LSL stream: '{}'", stream_name);
+        println!("🔍 [DEBUG] Starting LSL connection process for stream: '{}'", stream_name);
         
         // Use blocking task to handle LSL operations
         let stream_name_clone = stream_name.to_string();
         let result = tokio::task::spawn_blocking(move || {
-            // CRITICAL: Try to find REAL LSL streams first
-            match resolve_streams(5.0) {
+            println!("🔍 [DEBUG] Resolving LSL streams with 10 second timeout...");
+            
+            // INCREASED TIMEOUT: Give more time for stream discovery
+            match resolve_streams(10.0) {
                 Ok(streams) => {
-                    println!("📡 Found {} LSL streams", streams.len());
+                    println!("📡 [DEBUG] Found {} LSL streams total", streams.len());
                     
-                    // Log all available streams for debugging
+                    // Log ALL available streams for debugging
                     for (i, stream) in streams.iter().enumerate() {
-                        println!("  Stream {}: '{}' (type: {}, channels: {}, rate: {})", 
+                        println!("  [DEBUG] Stream {}: name='{}', type='{}', channels={}, rate={:.1}Hz, source='{}'", 
                                 i + 1, 
                                 stream.hostname(), 
                                 stream.stream_type(),
                                 stream.channel_count(),
-                                stream.nominal_srate());
+                                stream.nominal_srate(),
+                                stream.source_id());
                     }
                     
-                    let matching_stream = streams.iter()
-                        .find(|stream| stream.hostname() == stream_name_clone);
+                    // IMPROVED MATCHING: Try multiple matching strategies
+                    let matching_stream = streams.iter().find(|stream| {
+                        let hostname = stream.hostname().to_lowercase();
+                        let source_id = stream.source_id().to_lowercase();
+                        let stream_type = stream.stream_type().to_lowercase();
+                        let target = stream_name_clone.to_lowercase();
+                        
+                        println!("  [DEBUG] Checking stream: hostname='{}', source='{}', type='{}'", 
+                                hostname, source_id, stream_type);
+                        
+                        // Multiple matching strategies
+                        hostname == target || 
+                        source_id.contains(&target) || 
+                        hostname.contains(&target) ||
+                        (target == "123" && (hostname == "123" || source_id.contains("unicorn"))) ||
+                        (target.contains("unicorn") && (hostname.contains("unicorn") || source_id.contains("unicorn")))
+                    });
                     
                     if let Some(stream_info) = matching_stream {
-                        println!("✅ Found REAL LSL stream: '{}'", stream_name_clone);
+                        println!("✅ [DEBUG] Found matching LSL stream: '{}'", stream_info.hostname());
                         
                         let channel_count = stream_info.channel_count() as usize;
                         
@@ -253,7 +270,7 @@ impl EEGProcessor {
                         let stream_type = stream_info.stream_type().to_string();
                         let source_id = stream_info.source_id().to_string();
                         
-                        // Extract REAL channel names from XML description
+                        // Extract channel names
                         let channel_names = Self::extract_real_channel_names_sync(stream_info, channel_count);
                         
                         // Extract manufacturer and device info
@@ -270,10 +287,24 @@ impl EEGProcessor {
                             device_model
                         );
 
-                        // Test connection by creating a temporary inlet
+                        // CRITICAL: Test connection by creating inlet with longer timeout
+                        println!("🔗 [DEBUG] Testing LSL inlet connection...");
                         match StreamInlet::new(stream_info, 360, 1, true) {
-                            Ok(_inlet) => {
-                                // Don't store the inlet, just verify we can connect
+                            Ok(inlet) => {
+                                println!("✅ [DEBUG] LSL inlet created successfully");
+                                
+                                // Test data pull to verify connection
+                                println!("📊 [DEBUG] Testing data pull from LSL stream...");
+                                match <StreamInlet as Pullable<f32>>::pull_sample(&inlet, 1.0) {
+                                    Ok((sample, timestamp)) => {
+                                        println!("✅ [DEBUG] Successfully pulled test sample: {} channels, timestamp: {}", 
+                                                sample.len(), timestamp);
+                                    }
+                                    Err(e) => {
+                                        println!("⚠️ [DEBUG] No immediate data available (this is normal): {}", e);
+                                    }
+                                }
+                                
                                 let info = LSLStreamInfo {
                                     name: stream_info.hostname().to_string(),
                                     channel_count: stream_info.channel_count(),
@@ -287,23 +318,31 @@ impl EEGProcessor {
                                     device_model,
                                 };
                                 
-                                println!("✅ Successfully verified REAL LSL stream: '{}'", stream_name_clone);
-                                println!("📊 Stream info: {}", info.metadata);
-                                println!("🏷️ Channel names: {:?}", info.channel_names);
+                                println!("✅ [DEBUG] Successfully verified REAL LSL stream connection");
+                                println!("📊 [DEBUG] Stream info: {}", info.metadata);
                                 Ok((info, channel_count, true))
                             }
                             Err(e) => {
+                                println!("❌ [DEBUG] Failed to create LSL inlet: {}", e);
                                 Err(format!("❌ Failed to create inlet for LSL stream '{}': {}", stream_name_clone, e))
                             }
                         }
                     } else {
-                        // NO REAL STREAM FOUND - This should FAIL, not fallback to simulation
-                        Err(format!("❌ No REAL LSL stream found with name: '{}'. Available streams: {:?}", 
+                        let available_names: Vec<String> = streams.iter()
+                            .map(|s| format!("'{}' (type: {}, source: {})", 
+                                           s.hostname(), s.stream_type(), s.source_id()))
+                            .collect();
+                        
+                        println!("❌ [DEBUG] No matching LSL stream found for: '{}'", stream_name_clone);
+                        println!("❌ [DEBUG] Available streams: {:?}", available_names);
+                        
+                        Err(format!("❌ No LSL stream found with name: '{}'. Available streams: {}", 
                                    stream_name_clone, 
-                                   streams.iter().map(|s| s.hostname()).collect::<Vec<_>>()))
+                                   available_names.join(", ")))
                     }
                 }
                 Err(e) => {
+                    println!("❌ [DEBUG] Failed to resolve LSL streams: {}", e);
                     Err(format!("❌ Failed to resolve LSL streams: {}. Make sure your EEG device is connected and streaming via LSL.", e))
                 }
             }
@@ -311,6 +350,8 @@ impl EEGProcessor {
 
         match result {
             Ok(Ok((info, channel_count, is_real))) => {
+                println!("✅ [DEBUG] LSL connection successful, updating processor state...");
+                
                 // Update connection state
                 let mut connection = self.lsl_connection.lock().await;
                 connection.stream_info = Some(info.clone());
@@ -326,15 +367,22 @@ impl EEGProcessor {
                 *self.bandpass_filter.lock().await = Some(ButterworthFilter::new(4, channel_count));
                 *self.notch_filter.lock().await = Some(NotchFilter::new(channel_count));
                 
+                println!("✅ [DEBUG] EEG processor state updated successfully");
                 Ok(info)
             }
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(format!("❌ Task execution failed: {}", e))
+            Ok(Err(e)) => {
+                println!("❌ [DEBUG] LSL connection failed: {}", e);
+                Err(e)
+            }
+            Err(e) => {
+                println!("❌ [DEBUG] Task execution failed: {}", e);
+                Err(format!("❌ Task execution failed: {}", e))
+            }
         }
     }
 
     fn extract_real_channel_names_sync(stream_info: &StreamInfo, channel_count: usize) -> Vec<String> {
-        println!("🔍 Extracting REAL channel names from LSL stream...");
+        println!("🔍 [DEBUG] Extracting channel names from LSL stream...");
         
         let mut channel_names = Vec::new();
         
@@ -342,16 +390,11 @@ impl EEGProcessor {
         let source_id = stream_info.source_id().to_lowercase();
         let stream_name = stream_info.hostname().to_lowercase();
         
-        println!("🔍 Detecting device type...");
-        println!("📱 Source ID: {}", source_id);
-        println!("📱 Stream Name: {}", stream_name);
+        println!("🔍 [DEBUG] Device detection - Source ID: '{}', Stream Name: '{}'", source_id, stream_name);
         
         // Unicorn Hybrid Black specific channel layout
         if source_id.contains("unicorn") || stream_name.contains("unicorn") || stream_name == "123" {
-            println!("🦄 Detected Unicorn Hybrid Black device");
-            // Unicorn Hybrid Black has these channels in this order:
-            // EEG: Fz, C3, Cz, C4, Pz, PO7, Oz, PO8
-            // Plus: ACC X, ACC Y, ACC Z, GYR X, GYR Y, GYR Z, Battery, Counter, Validation
+            println!("🦄 [DEBUG] Detected Unicorn Hybrid Black device");
             let unicorn_channels = vec![
                 "Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8",
                 "ACC_X", "ACC_Y", "ACC_Z", "GYR_X", "GYR_Y", "GYR_Z", 
@@ -364,7 +407,7 @@ impl EEGProcessor {
         }
         // OpenBCI detection
         else if source_id.contains("openbci") || stream_name.contains("openbci") {
-            println!("🧠 Detected OpenBCI device");
+            println!("🧠 [DEBUG] Detected OpenBCI device");
             let openbci_8ch = vec!["Fp1", "Fp2", "C3", "C4", "P7", "P8", "O1", "O2"];
             let openbci_16ch = vec![
                 "Fp1", "Fp2", "F7", "F3", "F4", "F8", "C3", "Cz", 
@@ -378,7 +421,7 @@ impl EEGProcessor {
         }
         // Emotiv detection
         else if source_id.contains("emotiv") || stream_name.contains("emotiv") {
-            println!("🎭 Detected Emotiv device");
+            println!("🎭 [DEBUG] Detected Emotiv device");
             let emotiv_channels = vec![
                 "AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", 
                 "P8", "T8", "FC6", "F4", "F8", "AF4"
@@ -390,7 +433,7 @@ impl EEGProcessor {
         }
         // Generic fallback
         else {
-            println!("❓ Unknown device, using generic channel names");
+            println!("❓ [DEBUG] Unknown device, using generic channel names");
             for i in 0..channel_count {
                 channel_names.push(format!("Ch{}", i + 1));
             }
@@ -404,7 +447,7 @@ impl EEGProcessor {
         // Truncate if we have too many
         channel_names.truncate(channel_count);
         
-        println!("✅ Final channel names: {:?}", channel_names);
+        println!("✅ [DEBUG] Final channel names: {:?}", channel_names);
         channel_names
     }
 
@@ -429,6 +472,7 @@ impl EEGProcessor {
     }
 
     async fn disconnect_lsl(&self) {
+        println!("🔌 [DEBUG] Disconnecting from LSL stream");
         let mut connection = self.lsl_connection.lock().await;
         connection.stream_info = None;
         connection.channel_count = 8;
@@ -437,16 +481,16 @@ impl EEGProcessor {
         
         *self.bandpass_filter.lock().await = None;
         *self.notch_filter.lock().await = None;
-        println!("🔌 Disconnected from LSL stream");
+        println!("✅ [DEBUG] LSL disconnection complete");
     }
 
-    // FIXED: Create new inlet each time to avoid threading issues
+    // Create new inlet each time to avoid threading issues
     async fn get_lsl_sample(&self) -> Option<EEGSample> {
         let connection = self.lsl_connection.lock().await;
         
-        // CRITICAL: Only try to get real data if we have a real connection
+        // Only try to get real data if we have a real connection
         if !connection.is_real_connection {
-            return None; // No real data available
+            return None;
         }
         
         let stream_name = connection.stream_name.clone()?;
@@ -458,12 +502,21 @@ impl EEGProcessor {
             match resolve_streams(0.1) {
                 Ok(streams) => {
                     let matching_stream = streams.iter()
-                        .find(|stream| stream.hostname() == stream_name);
+                        .find(|stream| {
+                            let hostname = stream.hostname().to_lowercase();
+                            let source_id = stream.source_id().to_lowercase();
+                            let target = stream_name.to_lowercase();
+                            
+                            hostname == target || 
+                            source_id.contains(&target) || 
+                            hostname.contains(&target) ||
+                            (target == "123" && (hostname == "123" || source_id.contains("unicorn")))
+                        });
                     
                     if let Some(stream_info) = matching_stream {
                         match StreamInlet::new(stream_info, 360, 1, true) {
                             Ok(inlet) => {
-                                // FIXED: Explicit type annotation for LSL 0.1.1 API
+                                // Pull sample with very short timeout
                                 match <StreamInlet as Pullable<f32>>::pull_sample(&inlet, 0.001) {
                                     Ok((sample, timestamp)) => {
                                         let mut channels = vec![0.0f32; channel_count];
@@ -490,34 +543,6 @@ impl EEGProcessor {
         }).await;
         
         result.unwrap_or(None)
-    }
-
-    async fn generate_simulated_sample(&self, timestamp: f64) -> EEGSample {
-        let connection = self.lsl_connection.lock().await;
-        let channel_count = connection.channel_count;
-        drop(connection);
-        
-        let mut channels = vec![0.0f32; channel_count];
-        
-        // Use a separate RNG instance to avoid Send issues
-        let mut rng = rand::rngs::StdRng::from_entropy();
-        
-        for (i, channel) in channels.iter_mut().enumerate() {
-            // Create unique patterns for each channel (simulating different brain regions)
-            let channel_offset = i as f32 * 0.3;
-            let time_factor = timestamp as f32 + channel_offset;
-            
-            // Simulate realistic EEG patterns for meditation
-            let alpha_component = (15.0 + i as f32 * 2.0) * (2.0 * std::f32::consts::PI * 10.0 * time_factor).sin();
-            let theta_component = (12.0 + i as f32 * 1.5) * (2.0 * std::f32::consts::PI * 6.0 * time_factor).sin();
-            let beta_component = (6.0 + i as f32) * (2.0 * std::f32::consts::PI * 20.0 * time_factor).sin();
-            let delta_component = (8.0 + i as f32 * 0.5) * (2.0 * std::f32::consts::PI * 2.0 * time_factor).sin();
-            let noise = rng.gen_range(-2.0..2.0);
-            
-            *channel = alpha_component + theta_component + beta_component + delta_component + noise;
-        }
-        
-        EEGSample { timestamp, channels }
     }
 
     async fn apply_real_time_filters(&self, sample: &EEGSample) -> FilteredEEGSample {
@@ -655,20 +680,38 @@ async fn connect_to_lsl_stream(
     stream_name: String,
     processor: State<'_, Arc<Mutex<EEGProcessor>>>,
 ) -> Result<LSLStreamInfo, String> {
+    println!("🚀 [DEBUG] Tauri command: connect_to_lsl_stream called with stream_name: '{}'", stream_name);
+    
     let processor = processor.inner().clone();
     let processor_guard = processor.lock().await;
     
-    processor_guard.connect_to_lsl(&stream_name).await
+    let result = processor_guard.connect_to_lsl(&stream_name).await;
+    
+    match &result {
+        Ok(info) => {
+            println!("✅ [DEBUG] Tauri command: connect_to_lsl_stream succeeded");
+            println!("📊 [DEBUG] Returning stream info: {:?}", info);
+        }
+        Err(e) => {
+            println!("❌ [DEBUG] Tauri command: connect_to_lsl_stream failed: {}", e);
+        }
+    }
+    
+    result
 }
 
 #[tauri::command]
 async fn disconnect_from_lsl(
     processor: State<'_, Arc<Mutex<EEGProcessor>>>,
 ) -> Result<(), String> {
+    println!("🔌 [DEBUG] Tauri command: disconnect_from_lsl called");
+    
     let processor = processor.inner().clone();
     let processor_guard = processor.lock().await;
     
     processor_guard.disconnect_lsl().await;
+    
+    println!("✅ [DEBUG] Tauri command: disconnect_from_lsl completed");
     Ok(())
 }
 
@@ -679,7 +722,10 @@ async fn get_current_stream_info(
     let processor = processor.inner().clone();
     let processor_guard = processor.lock().await;
     
-    Ok(processor_guard.get_stream_info().await)
+    let info = processor_guard.get_stream_info().await;
+    println!("📊 [DEBUG] Tauri command: get_current_stream_info returning: {:?}", info);
+    
+    Ok(info)
 }
 
 #[tauri::command]
@@ -687,14 +733,19 @@ async fn start_eeg_processing(
     app_handle: tauri::AppHandle,
     processor: State<'_, Arc<Mutex<EEGProcessor>>>,
 ) -> Result<(), String> {
+    println!("🚀 [DEBUG] Tauri command: start_eeg_processing called");
+    
     let processor = processor.inner().clone();
     let app_handle = app_handle.clone();
     
     tokio::spawn(async move {
+        println!("🔄 [DEBUG] EEG processing loop started");
+        
         let mut interval = interval(Duration::from_millis(4)); // 250 Hz = 4ms intervals
         let start_time = std::time::SystemTime::now();
         let mut sample_count = 0u64;
         let mut last_fft_time = 0u64;
+        let mut last_data_log = 0u64;
         
         loop {
             interval.tick().await;
@@ -706,54 +757,61 @@ async fn start_eeg_processing(
             let processor_guard = processor.lock().await;
             let is_real_connection = processor_guard.is_real_connection().await;
             
-            let raw_sample = if is_real_connection {
-                // Try to get REAL LSL sample first
+            if is_real_connection {
+                // Try to get REAL LSL sample
                 if let Some(lsl_sample) = processor_guard.get_lsl_sample().await {
-                    lsl_sample
+                    // Log data reception periodically
+                    let current_time_ms = (timestamp * 1000.0) as u64;
+                    if current_time_ms - last_data_log >= 5000 { // Every 5 seconds
+                        println!("📊 [DEBUG] Received real LSL sample: {} channels, timestamp: {}", 
+                                lsl_sample.channels.len(), lsl_sample.timestamp);
+                        last_data_log = current_time_ms;
+                    }
+                    
+                    // Apply real-time filters
+                    let filtered_sample = processor_guard.apply_real_time_filters(&lsl_sample).await;
+                    
+                    // Update buffers for FFT analysis
+                    processor_guard.update_buffers(&lsl_sample, &filtered_sample).await;
+                    
+                    // Emit raw EEG sample (every 2nd sample for performance)
+                    if sample_count % 2 == 0 {
+                        if let Err(e) = app_handle.emit_all("eeg_sample", &lsl_sample) {
+                            eprintln!("❌ [DEBUG] Failed to emit raw EEG sample: {}", e);
+                        }
+                    }
+                    
+                    // Emit filtered EEG sample (every 2nd sample for performance)
+                    if sample_count % 2 == 0 {
+                        if let Err(e) = app_handle.emit_all("filtered_eeg_sample", &filtered_sample) {
+                            eprintln!("❌ [DEBUG] Failed to emit filtered EEG sample: {}", e);
+                        }
+                    }
+                    
+                    // Analyze frequency bands every 250ms
+                    let current_time_ms = (timestamp * 1000.0) as u64;
+                    if current_time_ms - last_fft_time >= 250 {
+                        let bands = processor_guard.analyze_frequency_bands(timestamp).await;
+                        if let Err(e) = app_handle.emit_all("frequency_bands", &bands) {
+                            eprintln!("❌ [DEBUG] Failed to emit frequency bands: {}", e);
+                        }
+                        last_fft_time = current_time_ms;
+                    }
                 } else {
-                    // If no real data available, skip this iteration
-                    drop(processor_guard);
-                    continue;
+                    // No real data available - this is normal, just continue
+                    // Don't log this as it would spam the console
                 }
             } else {
-                // Generate simulated data only if no real connection
-                processor_guard.generate_simulated_sample(timestamp).await
-            };
-            
-            // Apply real-time filters
-            let filtered_sample = processor_guard.apply_real_time_filters(&raw_sample).await;
-            
-            // Update buffers for FFT analysis
-            processor_guard.update_buffers(&raw_sample, &filtered_sample).await;
-            
-            // Emit raw EEG sample (optimized - only every 2nd sample for performance)
-            if sample_count % 2 == 0 {
-                if let Err(e) = app_handle.emit_all("eeg_sample", &raw_sample) {
-                    eprintln!("Failed to emit raw EEG sample: {}", e);
-                }
-            }
-            
-            // Emit filtered EEG sample (optimized - only every 2nd sample for performance)
-            if sample_count % 2 == 0 {
-                if let Err(e) = app_handle.emit_all("filtered_eeg_sample", &filtered_sample) {
-                    eprintln!("Failed to emit filtered EEG sample: {}", e);
-                }
-            }
-            
-            // Analyze frequency bands every 250ms (reduced frequency for performance)
-            let current_time_ms = (timestamp * 1000.0) as u64;
-            if current_time_ms - last_fft_time >= 250 {
-                let bands = processor_guard.analyze_frequency_bands(timestamp).await;
-                if let Err(e) = app_handle.emit_all("frequency_bands", &bands) {
-                    eprintln!("Failed to emit frequency bands: {}", e);
-                }
-                last_fft_time = current_time_ms;
+                // No real connection - should not happen if we reach this point
+                println!("⚠️ [DEBUG] EEG processing running but no real connection available");
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
             
             drop(processor_guard);
         }
     });
     
+    println!("✅ [DEBUG] Tauri command: start_eeg_processing completed (background task started)");
     Ok(())
 }
 
@@ -775,6 +833,8 @@ fn get_meditation_quote() -> String {
 }
 
 fn main() {
+    println!("🚀 [DEBUG] Starting Tauri application...");
+    
     let processor = Arc::new(Mutex::new(EEGProcessor::new()));
     
     tauri::Builder::default()
