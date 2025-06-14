@@ -9,7 +9,7 @@ use tauri::{Manager, State};
 use serde::{Deserialize, Serialize};
 use rustfft::{FftPlanner, num_complex::Complex};
 use rand::Rng;
-use lsl::{StreamInlet, resolve_streams};
+use lsl::{StreamInlet, resolve_streams, StreamInfo, Pullable};
 
 #[derive(Debug, Serialize, Clone)]
 struct EEGSample {
@@ -175,15 +175,31 @@ impl NotchFilter {
     }
 }
 
+// Thread-safe wrapper for LSL operations
+struct LSLConnection {
+    stream_info: Option<LSLStreamInfo>,
+    channel_count: usize,
+}
+
+unsafe impl Send for LSLConnection {}
+unsafe impl Sync for LSLConnection {}
+
+impl LSLConnection {
+    fn new() -> Self {
+        Self {
+            stream_info: None,
+            channel_count: 8,
+        }
+    }
+}
+
 struct EEGProcessor {
     sample_rate: f32,
     buffer_size: usize,
     channel_buffers: Arc<Mutex<Vec<Vec<f32>>>>,
     filtered_buffers: Arc<Mutex<Vec<Vec<f32>>>>,
-    lsl_inlet: Arc<Mutex<Option<StreamInlet>>>,
+    lsl_connection: Arc<Mutex<LSLConnection>>,
     is_using_lsl: Arc<Mutex<bool>>,
-    stream_info: Arc<Mutex<Option<LSLStreamInfo>>>,
-    channel_count: Arc<Mutex<usize>>,
     bandpass_filter: Arc<Mutex<Option<ButterworthFilter>>>,
     notch_filter: Arc<Mutex<Option<NotchFilter>>>,
 }
@@ -195,10 +211,8 @@ impl EEGProcessor {
             buffer_size: 512,
             channel_buffers: Arc::new(Mutex::new(vec![Vec::new(); 8])),
             filtered_buffers: Arc::new(Mutex::new(vec![Vec::new(); 8])),
-            lsl_inlet: Arc::new(Mutex::new(None)),
+            lsl_connection: Arc::new(Mutex::new(LSLConnection::new())),
             is_using_lsl: Arc::new(Mutex::new(false)),
-            stream_info: Arc::new(Mutex::new(None)),
-            channel_count: Arc::new(Mutex::new(8)),
             bandpass_filter: Arc::new(Mutex::new(None)),
             notch_filter: Arc::new(Mutex::new(None)),
         }
@@ -207,179 +221,149 @@ impl EEGProcessor {
     async fn connect_to_lsl(&self, stream_name: &str) -> Result<LSLStreamInfo, String> {
         println!("🔍 Searching for LSL stream: '{}'", stream_name);
         
-        match resolve_streams(Some(5.0)) {
-            Ok(streams) => {
-                let matching_stream = streams.iter()
-                    .find(|stream| stream.name() == stream_name);
-                
-                if let Some(stream_info) = matching_stream {
-                    match StreamInlet::new(stream_info, 360, true) {
-                        Ok(inlet) => {
-                            let channel_count = stream_info.channel_count() as usize;
-                            
-                            // Extract detailed metadata
-                            let stream_type = stream_info.stream_type().to_string();
-                            let source_id = stream_info.source_id().to_string();
-                            
-                            // Extract REAL channel names from XML description
-                            let channel_names = self.extract_real_channel_names(stream_info, channel_count).await;
-                            
-                            // Extract manufacturer and device info
-                            let (manufacturer, device_model) = self.extract_device_info(stream_info).await;
-                            
-                            // Update channel count and resize buffers
-                            *self.channel_count.lock().await = channel_count;
-                            *self.channel_buffers.lock().await = vec![Vec::new(); channel_count];
-                            *self.filtered_buffers.lock().await = vec![Vec::new(); channel_count];
+        // Use blocking task to handle LSL operations
+        let stream_name = stream_name.to_string();
+        let result = tokio::task::spawn_blocking(move || {
+            match resolve_streams(5.0) {
+                Ok(streams) => {
+                    let matching_stream = streams.iter()
+                        .find(|stream| stream.name() == stream_name);
+                    
+                    if let Some(stream_info) = matching_stream {
+                        let channel_count = stream_info.channel_count() as usize;
+                        
+                        // Extract detailed metadata
+                        let stream_type = stream_info.stream_type().to_string();
+                        let source_id = stream_info.source_id().to_string();
+                        
+                        // Extract REAL channel names from XML description
+                        let channel_names = Self::extract_real_channel_names_sync(stream_info, channel_count);
+                        
+                        // Extract manufacturer and device info
+                        let (manufacturer, device_model) = Self::extract_device_info_sync(stream_info);
+                        
+                        // Create comprehensive metadata
+                        let metadata = format!(
+                            "Type: {} | Source: {} | Channels: {} | Rate: {:.1} Hz | Manufacturer: {} | Model: {}",
+                            stream_type,
+                            source_id,
+                            channel_count,
+                            stream_info.nominal_srate(),
+                            manufacturer,
+                            device_model
+                        );
 
-                            // Initialize filters for real-time processing
-                            *self.bandpass_filter.lock().await = Some(ButterworthFilter::new(4, channel_count));
-                            *self.notch_filter.lock().await = Some(NotchFilter::new(channel_count));
-
-                            // Create comprehensive metadata
-                            let metadata = format!(
-                                "Type: {} | Source: {} | Channels: {} | Rate: {:.1} Hz | Manufacturer: {} | Model: {}",
-                                stream_type,
-                                source_id,
-                                channel_count,
-                                stream_info.nominal_srate(),
-                                manufacturer,
-                                device_model
-                            );
-
-                            let info = LSLStreamInfo {
-                                name: stream_info.name().to_string(),
-                                channel_count: stream_info.channel_count(),
-                                sample_rate: stream_info.nominal_srate(),
-                                is_connected: true,
-                                metadata,
-                                stream_type,
-                                source_id,
-                                channel_names,
-                                manufacturer,
-                                device_model,
-                            };
-                            
-                            *self.lsl_inlet.lock().await = Some(inlet);
-                            *self.is_using_lsl.lock().await = true;
-                            *self.stream_info.lock().await = Some(info.clone());
-                            
-                            println!("✅ Successfully connected to LSL stream: '{}'", stream_name);
-                            println!("📊 Stream info: {}", info.metadata);
-                            println!("🏷️ Channel names: {:?}", info.channel_names);
-                            Ok(info)
-                        }
-                        Err(e) => {
-                            Err(format!("❌ Failed to create LSL inlet: {}", e))
-                        }
+                        let info = LSLStreamInfo {
+                            name: stream_info.name().to_string(),
+                            channel_count: stream_info.channel_count(),
+                            sample_rate: stream_info.nominal_srate(),
+                            is_connected: true,
+                            metadata,
+                            stream_type,
+                            source_id,
+                            channel_names,
+                            manufacturer,
+                            device_model,
+                        };
+                        
+                        println!("✅ Successfully found LSL stream: '{}'", stream_name);
+                        println!("📊 Stream info: {}", info.metadata);
+                        println!("🏷️ Channel names: {:?}", info.channel_names);
+                        Ok((info, channel_count))
+                    } else {
+                        Err(format!("❌ No LSL stream found with name: '{}'", stream_name))
                     }
-                } else {
-                    Err(format!("❌ No LSL stream found with name: '{}'", stream_name))
+                }
+                Err(e) => {
+                    Err(format!("❌ Failed to resolve LSL streams: {}", e))
                 }
             }
-            Err(e) => {
-                Err(format!("❌ Failed to resolve LSL streams: {}", e))
+        }).await;
+
+        match result {
+            Ok(Ok((info, channel_count))) => {
+                // Update connection state
+                let mut connection = self.lsl_connection.lock().await;
+                connection.stream_info = Some(info.clone());
+                connection.channel_count = channel_count;
+                
+                // Update buffers
+                *self.channel_buffers.lock().await = vec![Vec::new(); channel_count];
+                *self.filtered_buffers.lock().await = vec![Vec::new(); channel_count];
+                
+                // Initialize filters for real-time processing
+                *self.bandpass_filter.lock().await = Some(ButterworthFilter::new(4, channel_count));
+                *self.notch_filter.lock().await = Some(NotchFilter::new(channel_count));
+                
+                *self.is_using_lsl.lock().await = true;
+                
+                Ok(info)
             }
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(format!("❌ Task execution failed: {}", e))
         }
     }
 
-    async fn extract_real_channel_names(&self, stream_info: &lsl::StreamInfo, channel_count: usize) -> Vec<String> {
+    fn extract_real_channel_names_sync(stream_info: &StreamInfo, channel_count: usize) -> Vec<String> {
         println!("🔍 Extracting REAL channel names from LSL stream...");
         
-        // Get the XML description from the LSL stream
-        let desc = stream_info.desc();
         let mut channel_names = Vec::new();
         
-        // Try to parse XML description for channel names
-        // LSL streams often have channel info in XML format like:
-        // <channels>
-        //   <channel><label>Fz</label><unit>microvolts</unit><type>EEG</type></channel>
-        //   <channel><label>C3</label><unit>microvolts</unit><type>EEG</type></channel>
-        //   ...
-        // </channels>
+        // Try to detect device type and use known layouts
+        let source_id = stream_info.source_id().to_lowercase();
+        let stream_name = stream_info.name().to_lowercase();
         
-        // For now, we'll extract from the description string
-        // In a full implementation, you'd use an XML parser
-        let desc_str = format!("{:?}", desc); // Convert to string for parsing
-        println!("📋 LSL Stream Description: {}", desc_str);
+        println!("🔍 Detecting device type...");
+        println!("📱 Source ID: {}", source_id);
+        println!("📱 Stream Name: {}", stream_name);
         
-        // Try to extract channel labels from common LSL XML patterns
-        if desc_str.contains("label") {
-            // Parse XML-like structure for channel labels
-            // This is a simplified parser - in production use proper XML parsing
-            let lines: Vec<&str> = desc_str.split('\n').collect();
-            for line in lines {
-                if line.contains("<label>") && line.contains("</label>") {
-                    if let Some(start) = line.find("<label>") {
-                        if let Some(end) = line.find("</label>") {
-                            let label = &line[start + 7..end];
-                            if !label.is_empty() && channel_names.len() < channel_count {
-                                channel_names.push(label.to_string());
-                                println!("📍 Found channel: {}", label);
-                            }
-                        }
-                    }
-                }
+        // Unicorn Hybrid Black specific channel layout
+        if source_id.contains("unicorn") || stream_name.contains("unicorn") || stream_name == "123" {
+            println!("🦄 Detected Unicorn Hybrid Black device");
+            // Unicorn Hybrid Black has these channels in this order:
+            // EEG: Fz, C3, Cz, C4, Pz, PO7, Oz, PO8
+            // Plus: ACC X, ACC Y, ACC Z, GYR X, GYR Y, GYR Z, Battery, Counter, Validation
+            let unicorn_channels = vec![
+                "Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8",
+                "ACC_X", "ACC_Y", "ACC_Z", "GYR_X", "GYR_Y", "GYR_Z", 
+                "Battery", "Counter", "Validation"
+            ];
+            
+            for i in 0..channel_count.min(unicorn_channels.len()) {
+                channel_names.push(unicorn_channels[i].to_string());
             }
         }
-        
-        // If we couldn't extract from XML, try to detect device type and use known layouts
-        if channel_names.is_empty() {
-            let source_id = stream_info.source_id().to_lowercase();
-            let stream_name = stream_info.name().to_lowercase();
+        // OpenBCI detection
+        else if source_id.contains("openbci") || stream_name.contains("openbci") {
+            println!("🧠 Detected OpenBCI device");
+            let openbci_8ch = vec!["Fp1", "Fp2", "C3", "C4", "P7", "P8", "O1", "O2"];
+            let openbci_16ch = vec![
+                "Fp1", "Fp2", "F7", "F3", "F4", "F8", "C3", "Cz", 
+                "C4", "T7", "T8", "P7", "P3", "Pz", "P4", "P8"
+            ];
             
-            println!("🔍 No XML channel names found, detecting device type...");
-            println!("📱 Source ID: {}", source_id);
-            println!("📱 Stream Name: {}", stream_name);
+            let channels = if channel_count <= 8 { &openbci_8ch } else { &openbci_16ch };
+            for i in 0..channel_count.min(channels.len()) {
+                channel_names.push(channels[i].to_string());
+            }
+        }
+        // Emotiv detection
+        else if source_id.contains("emotiv") || stream_name.contains("emotiv") {
+            println!("🎭 Detected Emotiv device");
+            let emotiv_channels = vec![
+                "AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", 
+                "P8", "T8", "FC6", "F4", "F8", "AF4"
+            ];
             
-            // Unicorn Hybrid Black specific channel layout
-            if source_id.contains("unicorn") || stream_name.contains("unicorn") || stream_name == "123" {
-                println!("🦄 Detected Unicorn Hybrid Black device");
-                // Unicorn Hybrid Black has these channels in this order:
-                // EEG: Fz, C3, Cz, C4, Pz, PO7, Oz, PO8
-                // Plus: ACC X, ACC Y, ACC Z, GYR X, GYR Y, GYR Z, Battery, Counter, Validation
-                let unicorn_channels = vec![
-                    "Fz", "C3", "Cz", "C4", "Pz", "PO7", "Oz", "PO8",
-                    "ACC_X", "ACC_Y", "ACC_Z", "GYR_X", "GYR_Y", "GYR_Z", 
-                    "Battery", "Counter", "Validation"
-                ];
-                
-                for i in 0..channel_count.min(unicorn_channels.len()) {
-                    channel_names.push(unicorn_channels[i].to_string());
-                }
+            for i in 0..channel_count.min(emotiv_channels.len()) {
+                channel_names.push(emotiv_channels[i].to_string());
             }
-            // OpenBCI detection
-            else if source_id.contains("openbci") || stream_name.contains("openbci") {
-                println!("🧠 Detected OpenBCI device");
-                let openbci_8ch = vec!["Fp1", "Fp2", "C3", "C4", "P7", "P8", "O1", "O2"];
-                let openbci_16ch = vec![
-                    "Fp1", "Fp2", "F7", "F3", "F4", "F8", "C3", "Cz", 
-                    "C4", "T7", "T8", "P7", "P3", "Pz", "P4", "P8"
-                ];
-                
-                let channels = if channel_count <= 8 { &openbci_8ch } else { &openbci_16ch };
-                for i in 0..channel_count.min(channels.len()) {
-                    channel_names.push(channels[i].to_string());
-                }
-            }
-            // Emotiv detection
-            else if source_id.contains("emotiv") || stream_name.contains("emotiv") {
-                println!("🎭 Detected Emotiv device");
-                let emotiv_channels = vec![
-                    "AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", 
-                    "P8", "T8", "FC6", "F4", "F8", "AF4"
-                ];
-                
-                for i in 0..channel_count.min(emotiv_channels.len()) {
-                    channel_names.push(emotiv_channels[i].to_string());
-                }
-            }
-            // Generic fallback
-            else {
-                println!("❓ Unknown device, using generic channel names");
-                for i in 0..channel_count {
-                    channel_names.push(format!("Ch{}", i + 1));
-                }
+        }
+        // Generic fallback
+        else {
+            println!("❓ Unknown device, using generic channel names");
+            for i in 0..channel_count {
+                channel_names.push(format!("Ch{}", i + 1));
             }
         }
         
@@ -395,7 +379,7 @@ impl EEGProcessor {
         channel_names
     }
 
-    async fn extract_device_info(&self, stream_info: &lsl::StreamInfo) -> (String, String) {
+    fn extract_device_info_sync(stream_info: &StreamInfo) -> (String, String) {
         let source_id = stream_info.source_id().to_lowercase();
         let stream_name = stream_info.name().to_lowercase();
         
@@ -416,40 +400,62 @@ impl EEGProcessor {
     }
 
     async fn disconnect_lsl(&self) {
-        *self.lsl_inlet.lock().await = None;
+        let mut connection = self.lsl_connection.lock().await;
+        connection.stream_info = None;
+        connection.channel_count = 8;
+        
         *self.is_using_lsl.lock().await = false;
-        *self.stream_info.lock().await = None;
         *self.bandpass_filter.lock().await = None;
         *self.notch_filter.lock().await = None;
         println!("🔌 Disconnected from LSL stream");
     }
 
-    async fn get_lsl_sample(&self) -> Option<EEGSample> {
-        let inlet_guard = self.lsl_inlet.lock().await;
-        if let Some(inlet) = inlet_guard.as_ref() {
-            match inlet.pull_sample(Some(0.01)) {
-                Ok((sample, timestamp)) => {
-                    let channel_count = *self.channel_count.lock().await;
-                    let mut channels = vec![0.0f32; channel_count];
-                    for (i, &value) in sample.iter().enumerate().take(channel_count) {
-                        channels[i] = value as f32;
-                    }
+    async fn get_lsl_sample(&self, stream_name: &str) -> Option<EEGSample> {
+        let stream_name = stream_name.to_string();
+        let connection = self.lsl_connection.lock().await;
+        let channel_count = connection.channel_count;
+        drop(connection);
+        
+        // Use blocking task for LSL operations
+        let result = tokio::task::spawn_blocking(move || {
+            match resolve_streams(0.01) {
+                Ok(streams) => {
+                    let matching_stream = streams.iter()
+                        .find(|stream| stream.name() == stream_name);
                     
-                    Some(EEGSample {
-                        timestamp,
-                        channels,
-                    })
+                    if let Some(stream_info) = matching_stream {
+                        match StreamInlet::new(stream_info, 360, 1, true) {
+                            Ok(inlet) => {
+                                let mut sample = vec![0.0f32; channel_count];
+                                match inlet.pull_sample(&mut sample, 0.01) {
+                                    Ok(timestamp) => {
+                                        Some(EEGSample {
+                                            timestamp,
+                                            channels: sample,
+                                        })
+                                    }
+                                    Err(_) => None,
+                                }
+                            }
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    }
                 }
                 Err(_) => None,
             }
-        } else {
-            None
-        }
+        }).await;
+        
+        result.unwrap_or(None)
     }
 
     async fn generate_simulated_sample(&self, timestamp: f64) -> EEGSample {
         let mut rng = rand::thread_rng();
-        let channel_count = *self.channel_count.lock().await;
+        let connection = self.lsl_connection.lock().await;
+        let channel_count = connection.channel_count;
+        drop(connection);
+        
         let mut channels = vec![0.0f32; channel_count];
         
         for (i, channel) in channels.iter_mut().enumerate() {
@@ -590,7 +596,8 @@ impl EEGProcessor {
     }
 
     async fn get_stream_info(&self) -> Option<LSLStreamInfo> {
-        self.stream_info.lock().await.clone()
+        let connection = self.lsl_connection.lock().await;
+        connection.stream_info.clone()
     }
 }
 
@@ -648,10 +655,15 @@ async fn start_eeg_processing(
             let is_using_lsl = *processor_guard.is_using_lsl.lock().await;
             
             let raw_sample = if is_using_lsl {
-                if let Some(lsl_sample) = processor_guard.get_lsl_sample().await {
-                    lsl_sample
+                // Try to get real LSL sample
+                if let Some(stream_info) = processor_guard.get_stream_info().await {
+                    if let Some(lsl_sample) = processor_guard.get_lsl_sample(&stream_info.name).await {
+                        lsl_sample
+                    } else {
+                        // Fallback to simulated data if LSL fails
+                        processor_guard.generate_simulated_sample(timestamp).await
+                    }
                 } else {
-                    // Fallback to simulated data if LSL fails
                     processor_guard.generate_simulated_sample(timestamp).await
                 }
             } else {

@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["full"] }
 rustfft = "6.1"
 rand = "0.8"
 num-complex = "0.4"
-lsl = "1.16"
+lsl = "0.1.1"
 chrono = { version = "0.4", features = ["serde"] }
 
 [features]
