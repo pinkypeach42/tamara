@@ -8,7 +8,7 @@ const isTauri = (() => {
   try {
     const hasTauri = typeof window !== 'undefined' && 
                      window.__TAURI__ !== undefined;
-    console.log('🔍 Tauri Detection:', {
+    console.log('🔍 [DEBUG] Tauri Detection:', {
       windowExists: typeof window !== 'undefined',
       hasTauriObject: window.__TAURI__ !== undefined,
       isTauri: hasTauri,
@@ -16,7 +16,7 @@ const isTauri = (() => {
     });
     return hasTauri;
   } catch (error) {
-    console.log('❌ Tauri detection error:', error);
+    console.log('❌ [DEBUG] Tauri detection error:', error);
     return false;
   }
 })();
@@ -34,28 +34,28 @@ interface LSLStreamInfo {
   device_model?: string;
 }
 
-// Mock functions for web environment
+// Mock functions for web environment - should FAIL for meditation app
 const mockInvoke = async (command: string, args?: any) => {
-  console.log(`🎭 Mock Tauri invoke: ${command}`, args);
+  console.log(`❌ [DEBUG] Mock Tauri invoke - NO REAL LSL AVAILABLE: ${command}`, args);
   
   // Add delay to simulate real network calls
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  await new Promise(resolve => setTimeout(resolve, 1000));
   
   switch (command) {
     case 'connect_to_lsl_stream':
-      console.log('❌ Mock connection - No real LSL data available');
-      throw new Error('No Data stream available');
+      console.log('❌ [DEBUG] Mock connection - No real LSL data available');
+      throw new Error('No Data stream available - EEG device required for meditation');
       
     case 'start_eeg_processing':
-      console.log('🚀 Mock starting EEG processing');
-      return { success: true };
+      console.log('❌ [DEBUG] Mock EEG processing - No real data');
+      throw new Error('No real EEG data available');
       
     case 'get_meditation_quote':
       return "The mind is everything. What you think you become. - Buddha";
       
     default:
-      console.log('❓ Unknown mock command:', command);
-      return { success: false, message: `Unknown command: ${command}` };
+      console.log('❓ [DEBUG] Unknown mock command:', command);
+      throw new Error(`No real LSL connection available for: ${command}`);
   }
 };
 
@@ -63,14 +63,14 @@ const mockInvoke = async (command: string, args?: any) => {
 const invoke = async (command: string, args?: any) => {
   try {
     if (isTauri && window.__TAURI__?.invoke) {
-      console.log('🦀 Using REAL Tauri invoke for REAL LSL data:', command, args);
+      console.log('🦀 [DEBUG] Using REAL Tauri invoke for REAL LSL data:', command, args);
       return await window.__TAURI__.invoke(command, args);
     } else {
-      console.log('⚠️ Using mock invoke (no real LSL available):', command, args);
+      console.log('⚠️ [DEBUG] Using mock invoke (no real LSL available):', command, args);
       return await mockInvoke(command, args);
     }
   } catch (error) {
-    console.error('💥 Invoke error:', error);
+    console.error('💥 [DEBUG] Invoke error:', error);
     throw error;
   }
 };
@@ -84,24 +84,24 @@ function App() {
 
   // Enhanced debug logging
   useEffect(() => {
-    console.log('🚀 Tamara App initialized');
-    console.log('🔧 Environment:', isTauri ? 'Tauri Desktop (REAL LSL CAPABLE)' : 'Web Browser (SIMULATED DATA ONLY)');
-    console.log('📱 Current view:', currentView);
-    console.log('🌊 Stream name:', streamName);
-    console.log('🔌 Connection status:', connectionStatus);
-    console.log('📊 Stream info:', streamInfo);
+    console.log('🚀 [DEBUG] ===== TAMARA APP INITIALIZED =====');
+    console.log('🔧 [DEBUG] Environment:', isTauri ? 'Tauri Desktop (REAL LSL CAPABLE)' : 'Web Browser (NO REAL LSL)');
+    console.log('📱 [DEBUG] Current view:', currentView);
+    console.log('🌊 [DEBUG] Stream name:', streamName);
+    console.log('🔌 [DEBUG] Connection status:', connectionStatus);
+    console.log('📊 [DEBUG] Stream info:', streamInfo);
     
     if (!isTauri) {
-      console.log('⚠️ WARNING: Running in web browser - only simulated data available');
-      console.log('💡 To get REAL LSL data, run: npm run tauri:dev');
+      console.log('⚠️ [DEBUG] WARNING: Running in web browser - only meditation guidance available');
+      console.log('💡 [DEBUG] To get REAL LSL data, run: npm run tauri:dev');
     }
   }, [currentView, streamName, connectionStatus, streamInfo]);
 
   const handleConnectToLSL = async () => {
-    console.log('🔗 Starting LSL connection process...');
+    console.log('🔗 [DEBUG] ===== STARTING LSL CONNECTION PROCESS =====');
     
     if (!streamName.trim()) {
-      console.log('❌ No stream name provided');
+      console.log('❌ [DEBUG] No stream name provided');
       setErrorMessage('Please enter a stream name');
       return;
     }
@@ -110,32 +110,32 @@ function App() {
     setErrorMessage('');
 
     try {
-      console.log(`🔍 Attempting to connect to LSL stream: '${streamName}'`);
-      console.log(`🔧 Environment: ${isTauri ? 'REAL Tauri (can get real LSL data)' : 'Web browser (no real LSL available)'}`);
+      console.log(`🔍 [DEBUG] Attempting to connect to LSL stream: '${streamName}'`);
+      console.log(`🔧 [DEBUG] Environment: ${isTauri ? 'REAL Tauri (can get real LSL data)' : 'Web browser (no real LSL available)'}`);
       
       const result = await invoke('connect_to_lsl_stream', streamName.trim());
       
-      console.log('✅ LSL Connection result:', result);
+      console.log('✅ [DEBUG] LSL Connection result:', result);
       setStreamInfo(result as LSLStreamInfo);
       setConnectionStatus('connected');
       
       // Start EEG processing
-      console.log('🚀 Starting EEG processing...');
+      console.log('🚀 [DEBUG] Starting EEG processing...');
       await invoke('start_eeg_processing');
       
       // Navigate to visualization
-      console.log('📱 Switching to visualization view...');
+      console.log('📱 [DEBUG] Switching to visualization view...');
       setCurrentView('visualization');
       
     } catch (error) {
-      console.error('❌ LSL Connection failed:', error);
+      console.error('❌ [DEBUG] LSL Connection failed:', error);
       setConnectionStatus('error');
       setErrorMessage(error as string);
     }
   };
 
   const handleBackToConfig = () => {
-    console.log('🔙 Returning to configuration view...');
+    console.log('🔙 [DEBUG] Returning to configuration view...');
     setCurrentView('config');
     setConnectionStatus('idle');
     setStreamInfo(null);
@@ -143,7 +143,7 @@ function App() {
   };
 
   // Debug render decision
-  console.log('🎨 Render decision:', {
+  console.log('🎨 [DEBUG] Render decision:', {
     currentView,
     hasStreamInfo: !!streamInfo,
     shouldShowVisualization: currentView === 'visualization' && streamInfo
@@ -151,7 +151,7 @@ function App() {
 
   // Render visualization view
   if (currentView === 'visualization' && streamInfo) {
-    console.log('🎯 Rendering StreamVisualization component');
+    console.log('🎯 [DEBUG] Rendering StreamVisualization component');
     return (
       <StreamVisualization 
         streamInfo={streamInfo} 
@@ -161,7 +161,7 @@ function App() {
   }
 
   // Render configuration view
-  console.log('🎯 Rendering configuration view');
+  console.log('🎯 [DEBUG] Rendering configuration view');
   return (
     <div className="min-h-screen zen-gradient gradient-shift relative overflow-hidden">
       {/* Beautiful floating orbs with subtle movement */}
@@ -192,7 +192,7 @@ function App() {
             <div className="bg-white/80 backdrop-blur-sm px-4 py-2 rounded-full flex items-center shadow-md border border-[#0B3142]/10">
               <div className={`w-3 h-3 rounded-full mr-3 ${isTauri ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`}></div>
               <span className="text-[#0B3142] font-bold text-sm tracking-wide">
-                {isTauri ? 'DESKTOP APPLICATION - REAL LSL CAPABLE' : 'WEB DEMO MODE - SIMULATED DATA ONLY'}
+                {isTauri ? 'DESKTOP APPLICATION - REAL LSL CAPABLE' : 'WEB DEMO MODE - NO REAL LSL ACCESS'}
               </span>
             </div>
           </div>
@@ -205,7 +205,7 @@ function App() {
                   <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0" />
                   <div>
                     <p className="text-amber-800 font-semibold text-sm">
-                      ⚠️ Web Demo Mode: Only simulated data available
+                      ⚠️ Web Demo Mode: No real EEG data access
                     </p>
                     <p className="text-amber-700 text-xs mt-1">
                       For REAL LSL data from your EEG device, run: <code className="bg-amber-100 px-1 rounded">npm run tauri:dev</code>
@@ -231,7 +231,7 @@ function App() {
                 <p className="text-lg text-[#0B3142]/70 leading-relaxed">
                   {isTauri 
                     ? 'Connect to your EEG device via LSL stream for real-time neural monitoring'
-                    : 'Experience simulated neural data visualization (real EEG device required for live data)'
+                    : 'Experience meditation guidance (real EEG device required for neural feedback)'
                   }
                 </p>
               </div>
@@ -268,7 +268,7 @@ function App() {
                           <Search className="w-5 h-5 text-amber-500 animate-spin" />
                           <div>
                             <p className="font-bold text-[#0B3142] text-base">
-                              {isTauri ? 'Scanning for real LSL streams...' : 'Initializing simulated data...'}
+                              {isTauri ? 'Scanning for real LSL streams...' : 'Checking meditation readiness...'}
                             </p>
                             <p className="text-sm text-[#0B3142]/70">Searching for: "{streamName}"</p>
                           </div>
@@ -317,12 +317,12 @@ function App() {
                   {connectionStatus === 'connecting' ? (
                     <>
                       <Search className="w-5 h-5 mr-3 animate-spin" />
-                      {isTauri ? 'Connecting to Real LSL...' : 'Initializing Simulation...'}
+                      {isTauri ? 'Connecting to Real LSL...' : 'Preparing Meditation...'}
                     </>
                   ) : (
                     <>
                       <Wifi className="w-5 h-5 mr-3" />
-                      {isTauri ? 'Connect to Real LSL Stream' : 'Start Neural Simulation'}
+                      {isTauri ? 'Connect to Real LSL Stream' : 'Start Meditation Session'}
                     </>
                   )}
                 </button>
@@ -334,7 +334,7 @@ function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-[#0B3142]/70">
                   <div>
                     <h4 className="font-bold text-[#0B3142] mb-2">
-                      {isTauri ? 'Real EEG Device Setup:' : 'Simulation Features:'}
+                      {isTauri ? 'Real EEG Device Setup:' : 'Meditation Features:'}
                     </h4>
                     <ul className="space-y-1 leading-relaxed">
                       {isTauri ? (
@@ -346,10 +346,10 @@ function App() {
                         </>
                       ) : (
                         <>
-                          <li>• Realistic EEG signal simulation</li>
-                          <li>• Multiple frequency bands</li>
-                          <li>• Meditation state patterns</li>
-                          <li>• Real-time visualization</li>
+                          <li>• Guided meditation sessions</li>
+                          <li>• Breathing exercises</li>
+                          <li>• Mindfulness techniques</li>
+                          <li>• Relaxation guidance</li>
                         </>
                       )}
                     </ul>

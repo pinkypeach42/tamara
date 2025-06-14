@@ -208,6 +208,7 @@ struct EEGProcessor {
 
 impl EEGProcessor {
     fn new() -> Self {
+        println!("🔧 [DEBUG] Creating new EEGProcessor instance");
         Self {
             sample_rate: 250.0,
             buffer_size: 512,
@@ -220,63 +221,103 @@ impl EEGProcessor {
     }
 
     async fn connect_to_lsl(&self, stream_name: &str) -> Result<LSLStreamInfo, String> {
-        println!("🔍 [DEBUG] Starting LSL connection process for stream: '{}'", stream_name);
+        println!("🚀 [DEBUG] ===== STARTING LSL CONNECTION PROCESS =====");
+        println!("🔍 [DEBUG] Target stream name: '{}'", stream_name);
+        println!("🔍 [DEBUG] Current thread: {:?}", std::thread::current().id());
         
         // Use blocking task to handle LSL operations
         let stream_name_clone = stream_name.to_string();
         let result = tokio::task::spawn_blocking(move || {
-            println!("🔍 [DEBUG] Resolving LSL streams with 10 second timeout...");
+            println!("🔍 [DEBUG] Entered blocking task for LSL operations");
+            println!("🔍 [DEBUG] Resolving LSL streams with 15 second timeout...");
             
-            // INCREASED TIMEOUT: Give more time for stream discovery
-            match resolve_streams(10.0) {
+            // MAXIMUM TIMEOUT: Give plenty of time for stream discovery
+            match resolve_streams(15.0) {
                 Ok(streams) => {
-                    println!("📡 [DEBUG] Found {} LSL streams total", streams.len());
+                    println!("📡 [DEBUG] ===== LSL STREAM DISCOVERY RESULTS =====");
+                    println!("📡 [DEBUG] Total streams found: {}", streams.len());
                     
-                    // Log ALL available streams for debugging
-                    for (i, stream) in streams.iter().enumerate() {
-                        println!("  [DEBUG] Stream {}: name='{}', type='{}', channels={}, rate={:.1}Hz, source='{}'", 
-                                i + 1, 
-                                stream.hostname(), 
-                                stream.stream_type(),
-                                stream.channel_count(),
-                                stream.nominal_srate(),
-                                stream.source_id());
+                    if streams.is_empty() {
+                        println!("❌ [DEBUG] NO LSL STREAMS FOUND AT ALL!");
+                        println!("❌ [DEBUG] This means:");
+                        println!("❌ [DEBUG] 1. No LSL applications are running");
+                        println!("❌ [DEBUG] 2. UnicornLSL.exe is not started");
+                        println!("❌ [DEBUG] 3. Network/firewall issues");
+                        return Err("❌ No LSL streams found. Please start UnicornLSL.exe and ensure it's broadcasting stream '123'".to_string());
                     }
                     
-                    // IMPROVED MATCHING: Try multiple matching strategies
+                    // Log ALL available streams with FULL details
+                    for (i, stream) in streams.iter().enumerate() {
+                        println!("📊 [DEBUG] ===== STREAM {} DETAILS =====", i + 1);
+                        println!("📊 [DEBUG]   Name/Hostname: '{}'", stream.hostname());
+                        println!("📊 [DEBUG]   Type: '{}'", stream.stream_type());
+                        println!("📊 [DEBUG]   Source ID: '{}'", stream.source_id());
+                        println!("📊 [DEBUG]   Channels: {}", stream.channel_count());
+                        println!("📊 [DEBUG]   Sample Rate: {:.1} Hz", stream.nominal_srate());
+                        println!("📊 [DEBUG]   UID: '{}'", stream.uid());
+                        println!("📊 [DEBUG] ================================");
+                    }
+                    
+                    // COMPREHENSIVE MATCHING: Try multiple strategies
+                    println!("🔍 [DEBUG] ===== STREAM MATCHING PROCESS =====");
+                    println!("🔍 [DEBUG] Looking for stream: '{}'", stream_name_clone);
+                    
                     let matching_stream = streams.iter().find(|stream| {
                         let hostname = stream.hostname().to_lowercase();
                         let source_id = stream.source_id().to_lowercase();
                         let stream_type = stream.stream_type().to_lowercase();
+                        let uid = stream.uid().to_lowercase();
                         let target = stream_name_clone.to_lowercase();
                         
-                        println!("  [DEBUG] Checking stream: hostname='{}', source='{}', type='{}'", 
-                                hostname, source_id, stream_type);
+                        println!("🔍 [DEBUG] Checking stream:");
+                        println!("🔍 [DEBUG]   hostname='{}' vs target='{}'", hostname, target);
+                        println!("🔍 [DEBUG]   source_id='{}' vs target='{}'", source_id, target);
+                        println!("🔍 [DEBUG]   uid='{}' vs target='{}'", uid, target);
                         
                         // Multiple matching strategies
-                        hostname == target || 
-                        source_id.contains(&target) || 
-                        hostname.contains(&target) ||
-                        (target == "123" && (hostname == "123" || source_id.contains("unicorn"))) ||
-                        (target.contains("unicorn") && (hostname.contains("unicorn") || source_id.contains("unicorn")))
+                        let exact_hostname = hostname == target;
+                        let exact_source = source_id == target;
+                        let exact_uid = uid == target;
+                        let contains_hostname = hostname.contains(&target);
+                        let contains_source = source_id.contains(&target);
+                        let unicorn_123 = target == "123" && (hostname == "123" || source_id.contains("unicorn") || uid.contains("unicorn"));
+                        let unicorn_match = target.contains("unicorn") && (hostname.contains("unicorn") || source_id.contains("unicorn"));
+                        
+                        println!("🔍 [DEBUG]   exact_hostname: {}", exact_hostname);
+                        println!("🔍 [DEBUG]   exact_source: {}", exact_source);
+                        println!("🔍 [DEBUG]   exact_uid: {}", exact_uid);
+                        println!("🔍 [DEBUG]   contains_hostname: {}", contains_hostname);
+                        println!("🔍 [DEBUG]   contains_source: {}", contains_source);
+                        println!("🔍 [DEBUG]   unicorn_123: {}", unicorn_123);
+                        println!("🔍 [DEBUG]   unicorn_match: {}", unicorn_match);
+                        
+                        let is_match = exact_hostname || exact_source || exact_uid || contains_hostname || contains_source || unicorn_123 || unicorn_match;
+                        println!("🔍 [DEBUG]   FINAL MATCH RESULT: {}", is_match);
+                        
+                        is_match
                     });
                     
                     if let Some(stream_info) = matching_stream {
-                        println!("✅ [DEBUG] Found matching LSL stream: '{}'", stream_info.hostname());
+                        println!("✅ [DEBUG] ===== FOUND MATCHING STREAM =====");
+                        println!("✅ [DEBUG] Matched stream: '{}'", stream_info.hostname());
+                        println!("✅ [DEBUG] Stream type: '{}'", stream_info.stream_type());
+                        println!("✅ [DEBUG] Source ID: '{}'", stream_info.source_id());
+                        println!("✅ [DEBUG] Channels: {}", stream_info.channel_count());
+                        println!("✅ [DEBUG] Sample rate: {:.1} Hz", stream_info.nominal_srate());
                         
                         let channel_count = stream_info.channel_count() as usize;
                         
-                        // Extract detailed metadata
+                        // Extract metadata
                         let stream_type = stream_info.stream_type().to_string();
                         let source_id = stream_info.source_id().to_string();
                         
                         // Extract channel names
                         let channel_names = Self::extract_real_channel_names_sync(stream_info, channel_count);
                         
-                        // Extract manufacturer and device info
+                        // Extract device info
                         let (manufacturer, device_model) = Self::extract_device_info_sync(stream_info);
                         
-                        // Create comprehensive metadata
+                        // Create metadata
                         let metadata = format!(
                             "🔴 REAL LSL DATA - Type: {} | Source: {} | Channels: {} | Rate: {:.1} Hz | Manufacturer: {} | Model: {}",
                             stream_type,
@@ -287,21 +328,26 @@ impl EEGProcessor {
                             device_model
                         );
 
-                        // CRITICAL: Test connection by creating inlet with longer timeout
-                        println!("🔗 [DEBUG] Testing LSL inlet connection...");
+                        // CRITICAL: Test connection by creating inlet with extended timeout
+                        println!("🔗 [DEBUG] ===== TESTING LSL CONNECTION =====");
+                        println!("🔗 [DEBUG] Creating StreamInlet with 360 buffer, 1 chunk, true recover...");
+                        
                         match StreamInlet::new(stream_info, 360, 1, true) {
                             Ok(inlet) => {
-                                println!("✅ [DEBUG] LSL inlet created successfully");
+                                println!("✅ [DEBUG] StreamInlet created successfully!");
                                 
-                                // Test data pull to verify connection
-                                println!("📊 [DEBUG] Testing data pull from LSL stream...");
-                                match <StreamInlet as Pullable<f32>>::pull_sample(&inlet, 1.0) {
+                                // Test data pull with longer timeout
+                                println!("📊 [DEBUG] Testing data pull with 2 second timeout...");
+                                match <StreamInlet as Pullable<f32>>::pull_sample(&inlet, 2.0) {
                                     Ok((sample, timestamp)) => {
-                                        println!("✅ [DEBUG] Successfully pulled test sample: {} channels, timestamp: {}", 
-                                                sample.len(), timestamp);
+                                        println!("✅ [DEBUG] SUCCESS! Pulled test sample:");
+                                        println!("✅ [DEBUG]   Sample length: {} channels", sample.len());
+                                        println!("✅ [DEBUG]   Timestamp: {}", timestamp);
+                                        println!("✅ [DEBUG]   First few values: {:?}", &sample[..sample.len().min(5)]);
                                     }
                                     Err(e) => {
-                                        println!("⚠️ [DEBUG] No immediate data available (this is normal): {}", e);
+                                        println!("⚠️ [DEBUG] No immediate data available (this can be normal): {}", e);
+                                        println!("⚠️ [DEBUG] Will proceed anyway as inlet was created successfully");
                                     }
                                 }
                                 
@@ -318,12 +364,17 @@ impl EEGProcessor {
                                     device_model,
                                 };
                                 
-                                println!("✅ [DEBUG] Successfully verified REAL LSL stream connection");
-                                println!("📊 [DEBUG] Stream info: {}", info.metadata);
+                                println!("✅ [DEBUG] ===== LSL CONNECTION SUCCESSFUL =====");
+                                println!("✅ [DEBUG] Stream info created: {:?}", info);
                                 Ok((info, channel_count, true))
                             }
                             Err(e) => {
-                                println!("❌ [DEBUG] Failed to create LSL inlet: {}", e);
+                                println!("❌ [DEBUG] ===== FAILED TO CREATE INLET =====");
+                                println!("❌ [DEBUG] Error: {}", e);
+                                println!("❌ [DEBUG] This could mean:");
+                                println!("❌ [DEBUG] 1. Stream exists but is not accessible");
+                                println!("❌ [DEBUG] 2. Another application is using the stream");
+                                println!("❌ [DEBUG] 3. Network connectivity issues");
                                 Err(format!("❌ Failed to create inlet for LSL stream '{}': {}", stream_name_clone, e))
                             }
                         }
@@ -333,8 +384,12 @@ impl EEGProcessor {
                                            s.hostname(), s.stream_type(), s.source_id()))
                             .collect();
                         
-                        println!("❌ [DEBUG] No matching LSL stream found for: '{}'", stream_name_clone);
-                        println!("❌ [DEBUG] Available streams: {:?}", available_names);
+                        println!("❌ [DEBUG] ===== NO MATCHING STREAM FOUND =====");
+                        println!("❌ [DEBUG] Target: '{}'", stream_name_clone);
+                        println!("❌ [DEBUG] Available streams:");
+                        for (i, name) in available_names.iter().enumerate() {
+                            println!("❌ [DEBUG]   {}: {}", i + 1, name);
+                        }
                         
                         Err(format!("❌ No LSL stream found with name: '{}'. Available streams: {}", 
                                    stream_name_clone, 
@@ -342,15 +397,22 @@ impl EEGProcessor {
                     }
                 }
                 Err(e) => {
-                    println!("❌ [DEBUG] Failed to resolve LSL streams: {}", e);
-                    Err(format!("❌ Failed to resolve LSL streams: {}. Make sure your EEG device is connected and streaming via LSL.", e))
+                    println!("❌ [DEBUG] ===== LSL STREAM RESOLUTION FAILED =====");
+                    println!("❌ [DEBUG] Error: {}", e);
+                    println!("❌ [DEBUG] This usually means:");
+                    println!("❌ [DEBUG] 1. No LSL applications are running");
+                    println!("❌ [DEBUG] 2. LSL library is not properly installed");
+                    println!("❌ [DEBUG] 3. Network/firewall blocking LSL multicast");
+                    println!("❌ [DEBUG] 4. UnicornLSL.exe is not started");
+                    Err(format!("❌ Failed to resolve LSL streams: {}. Make sure UnicornLSL.exe is running and broadcasting stream '{}'.", e, stream_name_clone))
                 }
             }
         }).await;
 
+        println!("🔄 [DEBUG] ===== PROCESSING BLOCKING TASK RESULT =====");
         match result {
             Ok(Ok((info, channel_count, is_real))) => {
-                println!("✅ [DEBUG] LSL connection successful, updating processor state...");
+                println!("✅ [DEBUG] Blocking task succeeded, updating processor state...");
                 
                 // Update connection state
                 let mut connection = self.lsl_connection.lock().await;
@@ -368,14 +430,15 @@ impl EEGProcessor {
                 *self.notch_filter.lock().await = Some(NotchFilter::new(channel_count));
                 
                 println!("✅ [DEBUG] EEG processor state updated successfully");
+                println!("✅ [DEBUG] ===== LSL CONNECTION COMPLETE =====");
                 Ok(info)
             }
             Ok(Err(e)) => {
-                println!("❌ [DEBUG] LSL connection failed: {}", e);
+                println!("❌ [DEBUG] Blocking task returned error: {}", e);
                 Err(e)
             }
             Err(e) => {
-                println!("❌ [DEBUG] Task execution failed: {}", e);
+                println!("❌ [DEBUG] Blocking task execution failed: {}", e);
                 Err(format!("❌ Task execution failed: {}", e))
             }
         }
@@ -680,20 +743,28 @@ async fn connect_to_lsl_stream(
     stream_name: String,
     processor: State<'_, Arc<Mutex<EEGProcessor>>>,
 ) -> Result<LSLStreamInfo, String> {
-    println!("🚀 [DEBUG] Tauri command: connect_to_lsl_stream called with stream_name: '{}'", stream_name);
+    println!("🚀 [DEBUG] ===== TAURI COMMAND: connect_to_lsl_stream =====");
+    println!("🚀 [DEBUG] Called with stream_name: '{}'", stream_name);
+    println!("🚀 [DEBUG] Thread: {:?}", std::thread::current().id());
     
     let processor = processor.inner().clone();
     let processor_guard = processor.lock().await;
     
+    println!("🔒 [DEBUG] Acquired processor lock, calling connect_to_lsl...");
     let result = processor_guard.connect_to_lsl(&stream_name).await;
     
     match &result {
         Ok(info) => {
-            println!("✅ [DEBUG] Tauri command: connect_to_lsl_stream succeeded");
-            println!("📊 [DEBUG] Returning stream info: {:?}", info);
+            println!("✅ [DEBUG] ===== TAURI COMMAND SUCCESS =====");
+            println!("✅ [DEBUG] Stream name: {}", info.name);
+            println!("✅ [DEBUG] Channels: {}", info.channel_count);
+            println!("✅ [DEBUG] Sample rate: {}", info.sample_rate);
+            println!("✅ [DEBUG] Is connected: {}", info.is_connected);
+            println!("✅ [DEBUG] Metadata: {}", info.metadata);
         }
         Err(e) => {
-            println!("❌ [DEBUG] Tauri command: connect_to_lsl_stream failed: {}", e);
+            println!("❌ [DEBUG] ===== TAURI COMMAND FAILED =====");
+            println!("❌ [DEBUG] Error: {}", e);
         }
     }
     
@@ -733,7 +804,7 @@ async fn start_eeg_processing(
     app_handle: tauri::AppHandle,
     processor: State<'_, Arc<Mutex<EEGProcessor>>>,
 ) -> Result<(), String> {
-    println!("🚀 [DEBUG] Tauri command: start_eeg_processing called");
+    println!("🚀 [DEBUG] ===== TAURI COMMAND: start_eeg_processing =====");
     
     let processor = processor.inner().clone();
     let app_handle = app_handle.clone();
@@ -833,10 +904,12 @@ fn get_meditation_quote() -> String {
 }
 
 fn main() {
-    println!("🚀 [DEBUG] Starting Tauri application...");
+    println!("🚀 [DEBUG] ===== STARTING TAURI APPLICATION =====");
+    println!("🚀 [DEBUG] Initializing EEG processor...");
     
     let processor = Arc::new(Mutex::new(EEGProcessor::new()));
     
+    println!("🚀 [DEBUG] Building Tauri app with invoke handlers...");
     tauri::Builder::default()
         .manage(processor)
         .invoke_handler(tauri::generate_handler![
