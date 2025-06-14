@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Brain, Activity, Database, CheckCircle, Filter, Zap } from 'lucide-react';
+import { ArrowLeft, Brain, Activity, Database, CheckCircle, Filter, Zap, AlertTriangle } from 'lucide-react';
 import EEGWaveform from './EEGWaveform';
 import FrequencyBands from './FrequencyBands';
 
@@ -51,9 +51,9 @@ const isTauri = (() => {
   }
 })();
 
-// Enhanced mock functions with better error handling
+// Enhanced mock functions that clearly indicate simulated data
 const mockListen = async (event: string, handler: (event: any) => void) => {
-  console.log(`🎭 Mock Tauri listen: ${event}`);
+  console.log(`🎭 Mock Tauri listen (SIMULATED DATA): ${event}`);
   
   if (event === 'eeg_sample') {
     const interval = setInterval(() => {
@@ -64,6 +64,7 @@ const mockListen = async (event: string, handler: (event: any) => void) => {
             channels: Array.from({ length: 8 }, (_, i) => {
               const time = Date.now() / 1000;
               const channelOffset = i * 0.5;
+              // Enhanced realistic EEG simulation
               return (
                 25 * Math.sin(2 * Math.PI * 10 * (time + channelOffset)) + // Alpha
                 18 * Math.sin(2 * Math.PI * 6 * (time + channelOffset)) +  // Theta
@@ -148,14 +149,14 @@ const mockListen = async (event: string, handler: (event: any) => void) => {
   return () => {};
 };
 
-// Enhanced listen function
+// Enhanced listen function that prioritizes REAL Tauri events
 const listen = async (event: string, handler: (event: any) => void) => {
   try {
     if (isTauri && window.__TAURI__?.event?.listen) {
-      console.log('🦀 Using real Tauri listen:', event);
+      console.log('🦀 Using REAL Tauri listen for REAL LSL data:', event);
       return await window.__TAURI__.event.listen(event, handler);
     } else {
-      console.log('🎭 Using mock listen:', event);
+      console.log('🎭 Using mock listen (SIMULATED DATA ONLY):', event);
       return await mockListen(event, handler);
     }
   } catch (error) {
@@ -175,11 +176,13 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
   useEffect(() => {
     console.log('🎯 StreamVisualization mounted');
     console.log('📊 Stream info:', streamInfo);
-    console.log('🔧 Environment:', isTauri ? 'Tauri Desktop' : 'Web Browser');
+    console.log('🔧 Environment:', isTauri ? 'Tauri Desktop (REAL LSL CAPABLE)' : 'Web Browser (SIMULATED DATA ONLY)');
+    console.log('🔗 Data source:', streamInfo.is_connected ? 'REAL LSL STREAM' : 'SIMULATED DATA');
   }, []);
 
   useEffect(() => {
     console.log('🎧 Setting up EEG data listeners...');
+    console.log(`📡 Data type: ${streamInfo.is_connected ? 'REAL LSL DATA' : 'SIMULATED DATA'}`);
     
     let unlistenRaw: (() => void) | undefined;
     let unlistenFiltered: (() => void) | undefined;
@@ -224,7 +227,7 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
         });
 
         setIsRecording(true);
-        console.log('✅ All EEG data listeners setup successfully');
+        console.log(`✅ All EEG data listeners setup successfully - ${streamInfo.is_connected ? 'REAL DATA' : 'SIMULATED DATA'}`);
       } catch (error) {
         console.error('❌ Failed to setup EEG data listeners:', error);
       }
@@ -267,16 +270,17 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
     isRecording,
     rawSamples: rawEegHistory.length,
     filteredSamples: filteredEegHistory.length,
-    frequencyBands: latestFrequencyBands.length
+    frequencyBands: latestFrequencyBands.length,
+    dataType: streamInfo.is_connected ? 'REAL' : 'SIMULATED'
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-      {/* Simplified floating background elements */}
+    <div className="app-container zen-gradient gradient-shift min-h-screen">
+      {/* Beautiful floating background elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-20 w-40 h-40 rounded-full bg-blue-200 opacity-10 animate-pulse" style={{ animationDelay: '0s' }}></div>
-        <div className="absolute top-60 right-32 w-32 h-32 rounded-full bg-purple-200 opacity-10 animate-pulse" style={{ animationDelay: '3s' }}></div>
-        <div className="absolute bottom-40 left-1/3 w-48 h-48 rounded-full bg-indigo-200 opacity-10 animate-pulse" style={{ animationDelay: '6s' }}></div>
+        <div className="absolute top-20 left-20 w-40 h-40 rounded-full bg-gradient-to-r from-[#F4D1AE]/15 to-[#0B3142]/8 floating-animation" style={{ animationDelay: '0s' }}></div>
+        <div className="absolute top-60 right-32 w-32 h-32 rounded-full bg-gradient-to-r from-[#0B3142]/8 to-[#F4D1AE]/15 floating-animation" style={{ animationDelay: '3s' }}></div>
+        <div className="absolute bottom-40 left-1/3 w-48 h-48 rounded-full bg-gradient-to-r from-[#F4D1AE]/12 to-[#0B3142]/6 floating-animation" style={{ animationDelay: '6s' }}></div>
       </div>
 
       <div className="relative z-10 container mx-auto px-6 py-6">
@@ -285,87 +289,112 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
           <div className="flex items-center justify-between mb-6">
             <button
               onClick={onBack}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl flex items-center text-sm font-semibold transition-colors"
+              className="zen-button px-6 py-3 flex items-center text-sm font-semibold"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Configuration
             </button>
             
             <div className="flex items-center gap-4">
-              <div className="bg-white px-4 py-2 rounded-full flex items-center shadow-md border border-gray-200">
-                <div className="w-3 h-3 rounded-full bg-green-500 mr-3 animate-pulse"></div>
-                <span className="text-gray-800 font-bold text-sm tracking-wide">NEURAL INTERFACE ACTIVE</span>
+              <div className="premium-card px-4 py-2 flex items-center">
+                <div className={`w-3 h-3 rounded-full mr-3 status-indicator ${
+                  streamInfo.is_connected ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}></div>
+                <span className="text-[#0B3142] font-bold text-sm tracking-wide">
+                  {streamInfo.is_connected ? 'REAL LSL DATA ACTIVE' : 'SIMULATED DATA ACTIVE'}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Stream Information Card */}
-          <div className="bg-white rounded-3xl p-8 shadow-xl border border-gray-200">
+          {/* Data Source Warning */}
+          {!streamInfo.is_connected && (
+            <div className="mb-6">
+              <div className="premium-card p-4 border-l-4 border-amber-400">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                  <div>
+                    <p className="font-bold text-[#0B3142] text-sm">
+                      ⚠️ Displaying Simulated Neural Data
+                    </p>
+                    <p className="text-[#0B3142]/70 text-xs mt-1">
+                      This is realistic simulation. For real EEG data, connect your device via LSL in Tauri desktop mode.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Enhanced Stream Information Card */}
+          <div className="premium-card p-8">
             <div className="flex items-center mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-4 rounded-2xl mr-6 shadow-lg">
+              <div className="zen-accent-gradient p-4 rounded-full mr-6 meditation-glow">
                 {streamInfo.is_connected ? (
-                  <Database className="w-8 h-8 text-white" />
+                  <Database className="w-8 h-8 text-[#0B3142]" />
                 ) : (
-                  <Brain className="w-8 h-8 text-white" />
+                  <Brain className="w-8 h-8 text-[#0B3142]" />
                 )}
               </div>
               <div>
-                <h1 className="text-4xl font-bold text-gray-800 mb-2">
+                <h1 className="text-4xl font-bold zen-text-gradient mb-2" style={{ fontFamily: 'Playfair Display, serif' }}>
                   {streamInfo.name}
                 </h1>
-                <p className="text-gray-600 text-xl font-medium">
-                  {streamInfo.is_connected ? 'Live Neural Data Stream' : 'Simulated Neural Data'}
+                <p className="text-[#0B3142]/70 text-xl font-medium">
+                  {streamInfo.is_connected ? 'Live Neural Data Stream' : 'Simulated Neural Data Stream'}
                 </p>
                 {streamInfo.device_model && (
-                  <p className="text-gray-500 text-sm mt-1">
+                  <p className="text-[#0B3142]/50 text-sm mt-1">
                     {streamInfo.manufacturer} • {streamInfo.device_model}
                   </p>
                 )}
               </div>
             </div>
 
-            {/* Stream Metadata Grid */}
+            {/* Premium Stream Metadata Grid */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-              <div className="bg-gray-50 rounded-xl p-4 text-center border border-gray-200">
-                <div className="text-2xl font-bold text-gray-800 mb-1">{streamInfo.channel_count}</div>
-                <div className="text-xs text-gray-600 font-semibold">Channels</div>
+              <div className="zen-glass rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-[#0B3142] mb-1">{streamInfo.channel_count}</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Channels</div>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4 text-center border border-gray-200">
-                <div className="text-2xl font-bold text-gray-800 mb-1">{streamInfo.sample_rate}</div>
-                <div className="text-xs text-gray-600 font-semibold">Hz Sampling</div>
+              <div className="zen-glass rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-[#0B3142] mb-1">{streamInfo.sample_rate}</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Hz Sampling</div>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4 text-center border border-gray-200">
+              <div className="zen-glass rounded-xl p-4 text-center">
                 <div className="flex items-center justify-center gap-2 mb-1">
-                  <CheckCircle className="w-5 h-5 text-green-500" />
-                  <span className="text-lg font-bold text-gray-800">Connected</span>
+                  <CheckCircle className={`w-5 h-5 ${streamInfo.is_connected ? 'text-emerald-500' : 'text-amber-500'}`} />
+                  <span className="text-lg font-bold text-[#0B3142]">
+                    {streamInfo.is_connected ? 'Real Data' : 'Simulated'}
+                  </span>
                 </div>
-                <div className="text-xs text-gray-600 font-semibold">Status</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Data Source</div>
               </div>
-              <div className="bg-gray-50 rounded-xl p-4 text-center border border-gray-200">
-                <div className="text-2xl font-bold text-gray-800 mb-1">
+              <div className="zen-glass rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-[#0B3142] mb-1">
                   {streamInfo.stream_type || 'EEG'}
                 </div>
-                <div className="text-xs text-gray-600 font-semibold">Data Type</div>
+                <div className="text-xs text-[#0B3142]/60 font-semibold">Signal Type</div>
               </div>
             </div>
 
-            {/* Metadata Display */}
+            {/* Enhanced Metadata Display */}
             {streamInfo.metadata && (
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
-                <h3 className="text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
+              <div className="zen-glass rounded-xl p-4">
+                <h3 className="text-sm font-bold text-[#0B3142] mb-2 flex items-center gap-2">
                   <Zap className="w-4 h-4" />
                   Stream Metadata
                 </h3>
-                <p className="text-sm text-gray-600 font-mono leading-relaxed">{streamInfo.metadata}</p>
+                <p className="text-sm text-[#0B3142]/70 font-mono leading-relaxed">{streamInfo.metadata}</p>
               </div>
             )}
           </div>
         </header>
 
-        {/* Channel Selector */}
+        {/* Premium Channel Selector */}
         <div className="flex justify-center mb-8">
-          <div className="bg-white rounded-2xl p-4 flex items-center gap-3 shadow-lg border border-gray-200">
-            <span className="text-gray-800 font-bold mr-3 text-sm">Neural Focus Channel:</span>
+          <div className="premium-card p-4 flex items-center gap-3">
+            <span className="text-[#0B3142] font-bold mr-3 text-sm">Neural Focus Channel:</span>
             <div className="flex gap-2">
               {Array.from({ length: streamInfo.channel_count }, (_, i) => {
                 const channelName = streamInfo.channel_names?.[i] || `${i + 1}`;
@@ -375,8 +404,8 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
                     onClick={() => setSelectedChannel(i)}
                     className={`px-3 py-2 rounded-xl font-bold text-xs transition-all duration-300 ${
                       selectedChannel === i
-                        ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg'
-                        : 'bg-gray-100 text-gray-800 hover:bg-gray-200 hover:shadow-md'
+                        ? 'zen-button-accent meditation-glow shadow-lg'
+                        : 'bg-[#0B3142]/10 text-[#0B3142] hover:bg-[#0B3142]/20 hover:shadow-md'
                     }`}
                     title={`Channel ${i + 1}: ${channelName}`}
                   >
@@ -388,20 +417,22 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
           </div>
         </div>
 
-        {/* Visualization Grid */}
+        {/* Premium Visualization Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
           {/* Neural Waveform Visualizations */}
           <div className="xl:col-span-2 space-y-8">
             {/* Raw Neural Data */}
-            <div className="bg-white rounded-3xl p-6 shadow-xl border border-gray-200">
+            <div className="premium-card p-6">
               <div className="flex items-center mb-6">
-                <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl mr-4">
-                  <Activity className="w-6 h-6 text-white" />
+                <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                  <Activity className="w-6 h-6 text-[#0B3142]" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-800 mb-1">Raw Neural Signals</h2>
-                  <p className="text-gray-600 text-sm">
-                    {streamInfo.channel_count} channels • Unprocessed brainwave data • Real-time acquisition
+                  <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
+                    {streamInfo.is_connected ? 'Raw Neural Signals' : 'Simulated Raw Signals'}
+                  </h2>
+                  <p className="text-[#0B3142]/60 text-sm">
+                    {streamInfo.channel_count} channels • {streamInfo.is_connected ? 'Live EEG data' : 'Realistic simulation'} • Real-time visualization
                   </p>
                 </div>
               </div>
@@ -410,20 +441,22 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
                 isActive={isRecording}
                 channelCount={streamInfo.channel_count}
                 channelNames={streamInfo.channel_names}
-                title="Raw Neural Data"
+                title={streamInfo.is_connected ? "Raw Neural Data" : "Simulated Raw Data"}
                 isFiltered={false}
               />
             </div>
 
             {/* Filtered Neural Data */}
-            <div className="bg-white rounded-3xl p-6 shadow-xl border border-gray-200">
+            <div className="premium-card p-6">
               <div className="flex items-center mb-6">
-                <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl mr-4">
-                  <Filter className="w-6 h-6 text-white" />
+                <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                  <Filter className="w-6 h-6 text-[#0B3142]" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-800 mb-1">Processed Neural Signals</h2>
-                  <p className="text-gray-600 text-sm">
+                  <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
+                    {streamInfo.is_connected ? 'Processed Neural Signals' : 'Simulated Filtered Signals'}
+                  </h2>
+                  <p className="text-[#0B3142]/60 text-sm">
                     1-40 Hz bandpass • 50 Hz notch filter • Artifact removal • Real-time processing
                   </p>
                 </div>
@@ -433,21 +466,23 @@ const StreamVisualization: React.FC<StreamVisualizationProps> = ({ streamInfo, o
                 isActive={isRecording}
                 channelCount={streamInfo.channel_count}
                 channelNames={streamInfo.channel_names}
-                title="Filtered Neural Data"
+                title={streamInfo.is_connected ? "Filtered Neural Data" : "Simulated Filtered Data"}
                 isFiltered={true}
               />
             </div>
           </div>
 
           {/* Neural State Analysis */}
-          <div className="bg-white rounded-3xl p-6 shadow-xl border border-gray-200">
+          <div className="premium-card p-6">
             <div className="flex items-center mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-3 rounded-xl mr-4">
-                <Brain className="w-6 h-6 text-white" />
+              <div className="zen-accent-gradient p-3 rounded-full mr-4">
+                <Brain className="w-6 h-6 text-[#0B3142]" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-gray-800 mb-1">Neural States</h2>
-                <p className="text-gray-600 text-sm">
+                <h2 className="text-2xl font-bold text-[#0B3142] mb-1">
+                  {streamInfo.is_connected ? 'Neural States' : 'Simulated Neural States'}
+                </h2>
+                <p className="text-[#0B3142]/60 text-sm">
                   {streamInfo.channel_names?.[selectedChannel] || `Channel ${selectedChannel + 1}`} • Frequency Analysis
                 </p>
               </div>
